@@ -4,14 +4,15 @@ import sys
 import argparse
 import time
 
-import ffmpeg
-from dirsearch.lib.core.settings import OUTPUT_FORMATS
-
 parser = argparse.ArgumentParser(add_help=False)
 
 parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
+parser.add_argument("--video", action="store_true", help="Download Video")
+parser.add_argument("--ppt", action="store_true", help="Download PPT")
+parser.add_argument("--ppt-to-pdf", action="store_true", help="Convert PPT to PDF", default=True)
+parser.add_argument("--ppt-problem-answer", action="store_true", help="Store PPT Problem Answer", default=True)
 
 args = parser.parse_args()
 
@@ -140,16 +141,26 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     l = len(lesson_data['data']['activities'])
 
-    for index, lesson in enumerate(lesson_data['data']['activities']):
-        # Lesson
-        try:
-            download_lesson(lesson, name_prefix + str(l - index))
-        except Exception as e:
-            print(e)
-            print(f"Failed to download {name_prefix} - {lesson['title']}", file=sys.stderr)
+    if args.video:
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            # Lesson
+            try:
+                download_lesson_video(lesson, name_prefix + str(l - index))
+            except Exception as e:
+                print(e)
+                print(f"Failed to download {name_prefix} - {lesson['title']}", file=sys.stderr)
+
+    if args.ppt:
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            # Lesson
+            try:
+                download_lesson_ppt(lesson, name_prefix + str(l - index))
+            except Exception as e:
+                print(e)
+                print(f"Failed to download {name_prefix} - {lesson['title']}", file=sys.stderr)
 
 
-# --- --- --- Section Download Lesson --- --- --- #
+# --- --- --- Section Download Lesson Video --- --- --- #
 # {
 #      "type": 14,
 #      "id": 7153416,
@@ -161,7 +172,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 # }
 
 
-def download_lesson(lesson: dict, name_prefix: str = ""):
+def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
     name_prefix += "-" + lesson['title']
@@ -225,10 +236,237 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
     if ret != 0:
         raise Exception(f"Failed to download {name_prefix}-{order}")
 
+# --- --- --- Section Download Lesson PPT --- --- --- #
+# {
+#     "code": 0,
+#     "msg": "OK",
+#     "data": {
+#         "lesson": {
+#             "id": "1267751345493205504",
+#             "title": "计算机网络原理  课堂提问（2）",
+#             "startTime": 1728964537223,
+#             "endTime": 1728965834350,
+#             "teacherIdentityId": "15753469",
+#             "classroom": {
+#                 "id": "3134428",
+#                 "name": "2024秋-计算机网络原理-2",
+#                 "pro": true
+#             },
+#             "course": {
+#                 "id": "1360043",
+#                 "name": "计算机网络原理"
+#             }
+#         },
+#         "fileSharing": {
+#             "count": 0,
+#             "cover": null
+#         },
+#         "teacher": {
+#             "identityId": "15753469",
+#             "avatar": "0",
+#             "name": "徐明伟",
+#             "number": "1998990267"
+#         },
+#         "replayType": 0,
+#         "replayOssStatus": 0,
+#         "presentations": [
+#             {
+#                 "id": "1267751453966295552",
+#                 "title": "计算机网络原理  课堂提问",
+#                 "cover": "https://thu-private-qn.yuketang.cn/slide/11789532/cover435_20241015115349.jpg?e=1729790227&token=IAM-gs8ue1pDIGwtR1CR0Zjdagg7Q2tn5G_1BqTmhmqa:CkT5RMnhXFxcVUWoxVU2xxjA6ac=",
+#                 "slidesCount": 21,
+#                 "totalSlidesCount": 59,
+#                 "doubtCount": 0,
+#                 "collectCount": 0,
+#                 "conf": "{\"show_presentation\":\"film\",\"slides\":[\"1267751453966295553\",\"1267751453974684160\",\"1267751453974684162\",\"1267751453974684164\",\"1267751453983072768\",\"1267751453983072770\",\"1267751453983072772\",\"1267751453983072774\",\"1267751453991461376\",\"1267751453991461378\",\"1267751453991461379\",\"1267751453999849984\",\"1267751453999849985\",\"1267751453999849986\",\"1267751453999849987\",\"1267751454008238592\",\"1267751454008238593\",\"1267751454008238594\",\"1267751454008238595\",\"1267751454016627200\",\"1267751454016627201\"],\"hide_slides\":[]}"
+#             }
+#         ],
+#         "user": {
+#             "identityId": "21640720",
+#             "avatar": "http://qn-sx.yuketang.cn/tougao_pic_AFzVVZcN5p9.png",
+#             "name": "董业恺",
+#             "number": "2022010426"
+#         },
+#         "activityId": "7970721",
+#         "memoContent": "",
+#         "liveViewed": false,
+#         "doubtSlides": [],
+#         "collectSlides": [],
+#         "checkIn": {
+#             "lessonId": "1267751345493205504",
+#             "identityId": "21640720",
+#             "score": 1000,
+#             "source": 5,
+#             "time": 1728964549329,
+#             "valid": 1,
+#             "problemScore": 1000,
+#             "quizScore": -1,
+#             "duration": 0,
+#             "addScore": null,
+#             "redEnvelope": 0,
+#             "correctCount": 10,
+#             "incorrectCount": 4,
+#             "unMarkCount": 0
+#         },
+#         "quizzes": [],
+#         "danmuList": [],
+#         "tougaoList": [],
+#         "toastType": 0,
+#         "problems": [
+#             {
+#                 "problemId": "1267751453974684162",
+#                 "problemType": 1,
+#                 "problemScore": 100,
+#                 "index": 3,
+#                 "cover": "https://thu-private-qn.yuketang.cn/slide/11789532/cover433_20241015115349.jpg?e=1729790227&token=IAM-gs8ue1pDIGwtR1CR0Zjdagg7Q2tn5G_1BqTmhmqa:hLi2EEWUQHgVeKyP9y4bi7neaYQ=",
+#                 "presentationId": "1267751453966295552",
+#                 "answer": [
+#                     "D"
+#                 ],
+#                 "ans_type": "",
+#                 "comment": {},
+#                 "correctAnswer": [
+#                     "D"
+#                 ],
+#                 "score": 100,
+#                 "submitTime": 1728964586371,
+#                 "scoreTime": 0,
+#                 "correct": true,
+#                 "blankStatus": [],
+#                 "anonymous": null,
+#                 "remarkDetail": {},
+#                 "teamInfo": null
+#             }
+#         ]
+#     }
+# }
+
+
+def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
+    lesson_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
+    name_prefix += "-" + lesson['title']
+
+    if 'presentations' not in lesson_data['data']:
+        print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)
+        return
+
+    for index, ppt in enumerate(lesson_data['data']['presentations']):
+        # PPT
+        try:
+            download_ppt(lesson["courseware_id"], ppt['id'], name_prefix + f"-{index}")
+        except Exception as e:
+            print(e)
+            print(f"Failed to download {name_prefix} - {ppt['title']}", file=sys.stderr)
+
+# --- --- --- Section Download PPT --- --- --- #
+# {
+#     "code": 0,
+#     "msg": "OK",
+#     "data": {
+#         "presentation": {
+#             "id": "714674183600571776",
+#             "title": "L1_课程介绍",
+#             "cover": "https://qn-st0.yuketang.cn/FudgWS2XoU3bXLxReeSBBhYTWJsX",
+#             "width": 720,
+#             "height": 540,
+#             "conf": {
+#                 "show_presentation": "all",
+#                 "slides": [
+#                     "714674183617348992"
+#                 ],
+#                 "hide_slides": []
+#             }
+#         },
+#         "slides": [
+#             {
+#                 "id": "714674183617348992",
+#                 "index": 1,
+#                 "doubtCount": 0,
+#                 "collectCount": 0,
+#                 "cover": "https://qn-st0.yuketang.cn/FudgWS2XoU3bXLxReeSBBhYTWJsX",
+#                 "problem": null,
+#                 "result": null
+#             }
+#         ]
+#     }
+# }
+
+
+def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
+    print(f"Downloading {name_prefix}")
+    ppt_raw_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt_id}&lesson_id={lesson_id}").json()
+    name_prefix += "-" + ppt_raw_data['data']['presentation']['title']
+
+    # If PDF is present, skip
+    if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
+        print(f"Skipping {name_prefix} - PDF already present")
+        return
+
+    os.makedirs(f"{DOWNLOAD_FOLDER}/{name_prefix}", exist_ok=True)
+
+    images = []
+
+    with open(f"{CACHE_FOLDER}/ppt_download.txt", "w") as f:
+        for slide in ppt_raw_data['data']['slides']:
+            f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
+            images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
+
+        # if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg"):
+        #     print(f"Skipping {name_prefix} - {slide['index']}")
+        #     continue
+        #
+        # with open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg", "wb") as f:
+        #     f.write(requests.get(slide['cover']).content)
+
+    os.system(f"aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c")
+
+    from PIL import Image
+
+    if args.ppt_problem_answer:
+        from PIL import ImageDraw, ImageFont
+
+        for problem in ppt_raw_data['data']['slides']:
+            if problem['problem'] is None:
+                continue
+
+            answer = "Answer: " + "; ".join(problem['problem']['content']['answer'])
+
+            image = Image.open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg")
+
+            draw = ImageDraw.Draw(image)
+
+            # Load the font
+            font = ImageFont.load_default(size=40)
+            text_bbox = draw.textbbox(xy=(20, 20), text=answer, font=font)
+
+            # Add semi-transparent black rectangle
+            draw.rectangle([text_bbox[0] - 10, text_bbox[1] - 10, text_bbox[2] + 10, text_bbox[3] + 10], fill="#bbb")
+
+            # Draw the text on top (white)
+            draw.text((text_bbox[0], text_bbox[1]), answer, anchor="lt", font=font, fill="#333")
+
+            image.save(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg")
+
+            # Replace the image in the list
+            images[images.index(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg")] = f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg"
+
+            print(f"Added Answer to {name_prefix} - {problem['index']}")
+
+    if not args.ppt_to_pdf:
+        return
+
+    print(f"Converting {name_prefix}")
+
+    images = [Image.open(i) for i in images]
+    images[0].save(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf", "PDF", resolution=100.0, save_all=True, append_images=images[1:])
+
+
+# --- --- --- Section Main --- --- --- #
+
 
 for course in courses:
     try:
         get_lesson_list(course)
     except Exception as e:
         print(e)
-        print(f"Failed to download {course['name']}", file=sys.stderr)
+        print(f"Failed to parse {course['name']}", file=sys.stderr)
