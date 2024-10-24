@@ -85,6 +85,11 @@ else:
     rainclassroom_sess.post(f"https://{YKT_HOST}/pc/web_login",
                             data=json.dumps({'UserID': userinfo['UserID'], 'Auth': userinfo['Auth']}))
 
+    # Store session
+    with open(f"{DOWNLOAD_FOLDER}/session.txt", "w") as f:
+        f.write(rainclassroom_sess.cookies['sessionid'])
+
+
 # --- --- --- Section Get Course List --- --- --- #
 
 # 获取自己的课程列表
