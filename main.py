@@ -100,6 +100,9 @@ shown_courses = rainclassroom_sess.get(f"https://{YKT_HOST}/v2/api/web/courses/l
 
 hidden_courses = rainclassroom_sess.get(f"https://{YKT_HOST}/v2/api/web/classroom_archive").json()
 
+for course in hidden_courses['data']['classrooms']:
+    course['classroom_id'] = course['id']
+
 courses = shown_courses['data']['list'] + hidden_courses['data']['classrooms']
 
 rainclassroom_sess.cookies['xtbz'] = 'ykt'
@@ -156,7 +159,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 download_lesson_video(lesson, name_prefix + str(l - index))
             except Exception as e:
                 print(e)
-                print(f"Failed to download {name_prefix} - {lesson['title']}", file=sys.stderr)
+                print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
@@ -165,7 +168,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 download_lesson_ppt(lesson, name_prefix + str(l - index))
             except Exception as e:
                 print(e)
-                print(f"Failed to download {name_prefix} - {lesson['title']}", file=sys.stderr)
+                print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
 
 # --- --- --- Section Download Lesson Video --- --- --- #
@@ -187,6 +190,10 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     if 'live' not in lesson_video_data['data']:
         print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
+        return
+
+    if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4"):
+        print(f"Skipping {name_prefix} - Video already present")
         return
 
     has_error = False
@@ -364,7 +371,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             download_ppt(lesson["courseware_id"], ppt['id'], name_prefix + f"-{index}")
         except Exception as e:
             print(e)
-            print(f"Failed to download {name_prefix} - {ppt['title']}", file=sys.stderr)
+            print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
 # --- --- --- Section Download PPT --- --- --- #
 # {
