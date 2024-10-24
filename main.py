@@ -24,7 +24,10 @@ requirements:
     - requests
     - websocket-client
     - qrcode
-    - ffmpeg-python
+    
+required system binaries:
+    - aria2c
+    - ffmpeg with nvenc support
 """)
 
     print(parser.format_help())
