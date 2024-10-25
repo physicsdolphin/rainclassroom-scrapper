@@ -474,7 +474,7 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
 
             answer = "Answer: " + "; ".join(problem['problem']['content']['answer'])
 
-            image = Image.open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg")
+            image = Image.open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg").convert("RGB")
 
             draw = ImageDraw.Draw(image)
 
@@ -488,7 +488,7 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
             # Draw the text on top (white)
             draw.text((text_bbox[0], text_bbox[1]), answer, anchor="lt", font=font, fill="#333")
 
-            image.convert(mode="RGB").save(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg")
+            image.save(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg")
 
             # Replace the image in the list
             images[images.index(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg")] = f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg"
