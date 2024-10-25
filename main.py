@@ -13,6 +13,8 @@ parser.add_argument("--video", action="store_true", help="Download Video")
 parser.add_argument("--ppt", action="store_true", help="Download PPT")
 parser.add_argument("--ppt-to-pdf", action="store_true", help="Convert PPT to PDF", default=True)
 parser.add_argument("--ppt-problem-answer", action="store_true", help="Store PPT Problem Answer", default=True)
+parser.add_argument("--course-name-filter", action="store", help="Filter Course Name", default=None)
+parser.add_argument("--lesson-name-filter", action="store", help="Filter Lesson Name", default=None)
 
 args = parser.parse_args()
 
@@ -35,11 +37,9 @@ required system binaries:
     exit()
 
 import requests
-import websocket
 import json
-import qrcode
 
-# --- --- --- Section LOGIN --- --- --- #
+# --- --- --- Section Init --- --- --- #
 # Login to RainClassroom
 userinfo = {}
 rainclassroom_sess = requests.session()
@@ -48,34 +48,41 @@ YKT_HOST = args.ykt_host
 DOWNLOAD_FOLDER = "data"
 CACHE_FOLDER = "cache"
 
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+os.makedirs(CACHE_FOLDER, exist_ok=True)
 
-def on_message(ws, message):
-    global userinfo
-    userinfo = json.loads(message)
-    if 'subscribe_status' in userinfo:
-        ws.close()
-        return
-
-    qr = qrcode.QRCode()
-    qr.add_data(userinfo["qrcode"])
-    # Flush screen first
-    print("\033c")
-    qr.print_ascii(out=sys.stdout)
-    print("请扫描二维码登录")
-
-
-def on_error(ws, error):
-    print(error)
-
-
-def on_open(ws):
-    ws.send(data=json.dumps({"op": "requestlogin", "role": "web", "version": 1.4, "type": "qrcode", "from": "web"}))
-
+# --- --- --- Section Load Session --- --- --- #
 
 if args.session_cookie is not None:
     rainclassroom_sess.cookies['sessionid'] = args.session_cookie
 
+# --- --- --- Section Login --- --- --- #
 else:
+    import websocket
+    import qrcode
+
+    def on_message(ws, message):
+        global userinfo
+        userinfo = json.loads(message)
+        if 'subscribe_status' in userinfo:
+            ws.close()
+            return
+
+        qr = qrcode.QRCode()
+        qr.add_data(userinfo["qrcode"])
+        # Flush screen first
+        print("\033c")
+        qr.print_ascii(out=sys.stdout)
+        print("请扫描二维码登录")
+
+
+    def on_error(ws, error):
+        print(error)
+
+
+    def on_open(ws):
+        ws.send(data=json.dumps({"op": "requestlogin", "role": "web", "version": 1.4, "type": "qrcode", "from": "web"}))
+
     # websocket数据交互
     ws = websocket.WebSocketApp(f"wss://{YKT_HOST}/wsapp/",
                                 on_message=on_message,
@@ -104,6 +111,9 @@ for course in hidden_courses['data']['classrooms']:
     course['classroom_id'] = course['id']
 
 courses = shown_courses['data']['list'] + hidden_courses['data']['classrooms']
+
+if args.course_name_filter is not None:
+    courses = [c for c in courses if args.course_name_filter in c['name']]
 
 rainclassroom_sess.cookies['xtbz'] = 'ykt'
 
@@ -150,13 +160,16 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     os.makedirs(f"{CACHE_FOLDER}/{course['name']}", exist_ok=True)
     name_prefix += course['name'] + "/"
 
-    l = len(lesson_data['data']['activities'])
+    if args.lesson_name_filter is not None:
+        lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if args.lesson_name_filter in l['title']]
+
+    length = len(lesson_data['data']['activities'])
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
             # Lesson
             try:
-                download_lesson_video(lesson, name_prefix + str(l - index))
+                download_lesson_video(lesson, name_prefix + str(length - index))
             except Exception as e:
                 print(e)
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
@@ -165,7 +178,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         for index, lesson in enumerate(lesson_data['data']['activities']):
             # Lesson
             try:
-                download_lesson_ppt(lesson, name_prefix + str(l - index))
+                download_lesson_ppt(lesson, name_prefix + str(length - index))
             except Exception as e:
                 print(e)
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
@@ -247,7 +260,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 def download_segment(url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
     ret = os.system(
-        f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 16 -s 16 '{url}' -c")
+        f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 4 '{url}' -c")
     if ret != 0:
         raise Exception(f"Failed to download {name_prefix}-{order}")
 
@@ -423,6 +436,9 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
 
     with open(f"{CACHE_FOLDER}/ppt_download.txt", "w") as f:
         for slide in ppt_raw_data['data']['slides']:
+            if not slide.get('cover'):
+                continue
+
             f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
             images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
 
@@ -442,6 +458,9 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
 
         for problem in ppt_raw_data['data']['slides']:
             if problem['problem'] is None:
+                continue
+
+            if not problem.get('cover'):
                 continue
 
             answer = "Answer: " + "; ".join(problem['problem']['content']['answer'])
@@ -474,6 +493,8 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
 
     images = [Image.open(i) for i in images]
     images[0].save(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf", "PDF", resolution=100.0, save_all=True, append_images=images[1:])
+
+    print(f"Converted {name_prefix}")
 
 
 # --- --- --- Section Main --- --- --- #
