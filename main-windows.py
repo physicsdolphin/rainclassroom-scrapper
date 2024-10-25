@@ -290,7 +290,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
         print(video_concatenating_command)
         # os.system(cmd)
 
-        chcp_command = "chcp 936"
+        chcp_command = "chcp 65001"
 
         video_concatenating_command_total = f"{chcp_command}; {video_concatenating_command}"
 
