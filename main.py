@@ -156,9 +156,18 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
 
-    os.makedirs(f"{DOWNLOAD_FOLDER}/{course['name']}", exist_ok=True)
-    os.makedirs(f"{CACHE_FOLDER}/{course['name']}", exist_ok=True)
-    name_prefix += course['name'] + "/"
+    folder_name = f"{course['name']}-{course['teacher']['name']}"
+
+    # Rename old folder
+    if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
+        os.rename(f"{DOWNLOAD_FOLDER}/{course['name']}", f"{DOWNLOAD_FOLDER}/{folder_name}")
+
+    if os.path.exists(f"{CACHE_FOLDER}/{course['name']}"):
+        os.rename(f"{CACHE_FOLDER}/{course['name']}", f"{CACHE_FOLDER}/{folder_name}")
+
+    os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
+    os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
+    name_prefix += folder_name + "/"
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if args.lesson_name_filter in l['title']]
