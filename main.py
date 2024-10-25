@@ -7,8 +7,6 @@ import argparse
 import time
 from multiprocessing.pool import ThreadPool
 
-from tornado.process import Subprocess
-
 parser = argparse.ArgumentParser(add_help=False)
 
 parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
@@ -208,6 +206,38 @@ def get_lesson_list(course: dict, TEMP_FOLDER: str, name_prefix: str = ""):
                 print(e)
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
+# --- --- --- Section Popen --- --- --- #
+
+
+def popen(cmd: str, interrupt, fail_msg: str):
+    print("Start:", cmd)
+    pcs = subprocess.Popen(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
+
+    while pcs.poll() is None:
+        if interrupted:
+            interrupt(pcs)
+
+            if pcs.poll() is None:
+                pcs.send_signal(signal.SIGTERM)
+                time.sleep(0.5)
+                if pcs.poll() is None:
+                    pcs.send_signal(signal.SIGKILL)
+
+            raise KeyboardInterrupt()
+
+        time.sleep(0.5)
+
+    print("End:", cmd)
+
+    if pcs.wait() != 0:
+        raise Exception(fail_msg)
+
+
+def aria2c_interrupt(pcs):
+    pcs.send_signal(signal.SIGINT)
+
+    while pcs.poll() is None:
+        time.sleep(0.5)
 
 # --- --- --- Section Download Lesson Video --- --- --- #
 # {
@@ -262,20 +292,17 @@ def download_lesson_video(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
                 [f"file '{cache_absolute}/{name_prefix}-{i}.mp4'" for i in range(len(lesson_video_data['data']['live']))]
             ))
 
-        cmd = f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda -i {ffmpeg_input_file} -c:v hevc_nvenc -b:v 200k -maxrate 400k -bufsize 3200k -r 8 -rc-lookahead 1024 -c:a aac -rematrix_maxval 1.0 -ac 1 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n"
+        cmd = f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda -i {ffmpeg_input_file} -c:v hevc_nvenc -b:v 200k -maxrate 400k -bufsize 3200k -r 8 -rc-lookahead 1024 -c:a aac -rematrix_maxval 1.0 -ac 1 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4 -hide_banner -loglevel warning -stats' -n"
 
-        print(cmd)
-        pcs = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        while pcs.poll() is None:
-            if interrupted:
-                pcs.send_signal(signal.SIGINT)
-                break
-
+        def ffmpeg_interrupt(pcs):
+            # Interrupt and kill ffmpeg, delete the incomplete file
+            pcs.send_signal(signal.SIGINT)
             time.sleep(0.5)
+            pcs.send_signal(signal.SIGKILL)
+            time.sleep(0.3)
+            os.remove(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4")
 
-        if pcs.wait() != 0:
-            raise Exception(f"Failed to concatenate {name_prefix}")
+        popen(cmd, ffmpeg_interrupt, f"Failed to concatenate {name_prefix}")
 
     if has_error:
         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
@@ -303,18 +330,9 @@ def download_lesson_video(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
 
 def download_segment(url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
-    pcs = subprocess.Popen(f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 2 '{url}' -c",
-                           shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 2 '{url}' -c --log-level warn"
 
-    while pcs.poll() is None:
-        if interrupted:
-            pcs.send_signal(signal.SIGINT)
-            break
-
-        time.sleep(0.5)
-
-    if pcs.wait() != 0:
-        raise Exception(f"Failed to download {name_prefix}-{order}")
+    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}-{order}")
 
 # --- --- --- Section Download Lesson PPT --- --- --- #
 # {
@@ -507,17 +525,9 @@ def download_ppt(lesson_id: str, TEMP_FOLDER, ppt_id: str, name_prefix: str = ""
         # with open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg", "wb") as f:
         #     f.write(requests.get(slide['cover']).content)
 
-    pcs = subprocess.Popen(f"aria2c -i {aria2_input_file} -x 32 -j 16 -c", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = f"aria2c -i {aria2_input_file} -x 16 -j 16 -c --log-level warn"
 
-    while pcs.poll() is None:
-        if interrupted:
-            pcs.send_signal(signal.SIGINT)
-            break
-
-        time.sleep(0.5)
-
-    if pcs.wait() != 0:
-        raise Exception(f"Failed to download {name_prefix}")
+    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}")
 
     from PIL import Image
 
