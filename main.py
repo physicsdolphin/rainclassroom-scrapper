@@ -1,8 +1,11 @@
 import os
+import signal
+import subprocess
 import sys
 
 import argparse
 import time
+from multiprocessing.pool import ThreadPool
 
 parser = argparse.ArgumentParser(add_help=False)
 
@@ -39,6 +42,7 @@ required system binaries:
 
 import requests
 import json
+import tempfile
 
 # --- --- --- Section Init --- --- --- #
 # Login to RainClassroom
@@ -51,6 +55,9 @@ CACHE_FOLDER = "cache"
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(CACHE_FOLDER, exist_ok=True)
+
+pool = ThreadPool(4)
+interrupted = False
 
 # --- --- --- Section Load Session --- --- --- #
 
@@ -153,7 +160,7 @@ rainclassroom_sess.cookies['xtbz'] = 'ykt'
 # }
 
 
-def get_lesson_list(course: dict, name_prefix: str = ""):
+def get_lesson_list(course: dict, TEMP_FOLDER: str, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
 
@@ -177,22 +184,60 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if interrupted:
+                return
+
             # Lesson
             try:
-                download_lesson_video(lesson, name_prefix + str(length - index))
+                download_lesson_video(lesson, TEMP_FOLDER, name_prefix + str(length - index))
             except Exception as e:
                 print(e)
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if interrupted:
+                return
+
             # Lesson
             try:
-                download_lesson_ppt(lesson, name_prefix + str(length - index))
+                download_lesson_ppt(lesson, TEMP_FOLDER, name_prefix + str(length - index))
             except Exception as e:
                 print(e)
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
+# --- --- --- Section Popen --- --- --- #
+
+
+def popen(cmd: str, interrupt, fail_msg: str):
+    print("Start:", cmd)
+    pcs = subprocess.Popen(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
+
+    while pcs.poll() is None:
+        if interrupted:
+            interrupt(pcs)
+
+            if pcs.poll() is None:
+                pcs.send_signal(signal.SIGTERM)
+                time.sleep(0.5)
+                if pcs.poll() is None:
+                    pcs.send_signal(signal.SIGKILL)
+
+            raise KeyboardInterrupt()
+
+        time.sleep(0.5)
+
+    print("End:", cmd)
+
+    if pcs.wait() != 0:
+        raise Exception(fail_msg)
+
+
+def aria2c_interrupt(pcs):
+    pcs.send_signal(signal.SIGINT)
+
+    while pcs.poll() is None:
+        time.sleep(0.5)
 
 # --- --- --- Section Download Lesson Video --- --- --- #
 # {
@@ -206,7 +251,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 # }
 
 
-def download_lesson_video(lesson: dict, name_prefix: str = ""):
+def download_lesson_video(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
     name_prefix += "-" + lesson['title']
@@ -217,11 +262,15 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4"):
         print(f"Skipping {name_prefix} - Video already present")
+        time.sleep(0.5)
         return
 
     has_error = False
 
     for order, segment in enumerate(lesson_video_data['data']['live']):
+        if interrupted:
+            return
+
         # Segment
         try:
             download_segment(segment['url'], order, name_prefix)
@@ -233,15 +282,27 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
     if not has_error and len(lesson_video_data['data']['live']) > 0:
         print(f"Concatenating {name_prefix}")
 
-        with open(f"{CACHE_FOLDER}/concat.txt", "w") as f:
+        ffmpeg_input_file = f"{TEMP_FOLDER}/concat.txt"
+
+        # Get absolute path of the video files
+        cache_absolute = os.path.abspath(f"{CACHE_FOLDER}")
+
+        with open(ffmpeg_input_file, "w") as f:
             f.write("\n".join(
-                [f"file '{name_prefix}-{i}.mp4'" for i in range(len(lesson_video_data['data']['live']))]
+                [f"file '{cache_absolute}/{name_prefix}-{i}.mp4'" for i in range(len(lesson_video_data['data']['live']))]
             ))
 
-        cmd = f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda -i {CACHE_FOLDER}/concat.txt -c:v hevc_nvenc -b:v 200k -maxrate 400k -bufsize 3200k -r 8 -rc-lookahead 1024 -c:a copy -rematrix_maxval 1.0 -ac 1 '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n"
+        cmd = f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda -i {ffmpeg_input_file} -c:v hevc_nvenc -b:v 200k -maxrate 400k -bufsize 3200k -r 8 -rc-lookahead 1024 -c:a aac -rematrix_maxval 1.0 -ac 1 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n -hide_banner -loglevel warning -stats"
 
-        print(cmd)
-        os.system(cmd)
+        def ffmpeg_interrupt(pcs):
+            # Interrupt and kill ffmpeg, delete the incomplete file
+            pcs.send_signal(signal.SIGINT)
+            time.sleep(0.5)
+            pcs.send_signal(signal.SIGKILL)
+            time.sleep(0.3)
+            os.remove(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4")
+
+        popen(cmd, ffmpeg_interrupt, f"Failed to concatenate {name_prefix}")
 
     if has_error:
         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
@@ -269,10 +330,9 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
 def download_segment(url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
-    ret = os.system(
-        f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 4 '{url}' -c")
-    if ret != 0:
-        raise Exception(f"Failed to download {name_prefix}-{order}")
+    cmd = f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 2 '{url}' -c --log-level warn"
+
+    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}-{order}")
 
 # --- --- --- Section Download Lesson PPT --- --- --- #
 # {
@@ -380,7 +440,7 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
 # }
 
 
-def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
+def download_lesson_ppt(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
     name_prefix += "-" + lesson['title']
 
@@ -389,9 +449,12 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
         return
 
     for index, ppt in enumerate(lesson_data['data']['presentations']):
+        if interrupted:
+            return
+
         # PPT
         try:
-            download_ppt(lesson["courseware_id"], ppt['id'], name_prefix + f"-{index}")
+            download_ppt(lesson["courseware_id"], TEMP_FOLDER, ppt['id'], name_prefix + f"-{index}")
         except Exception as e:
             print(e)
             print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
@@ -430,7 +493,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
 # }
 
 
-def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
+def download_ppt(lesson_id: str, TEMP_FOLDER, ppt_id: str, name_prefix: str = ""):
     print(f"Downloading {name_prefix}")
     ppt_raw_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt_id}&lesson_id={lesson_id}").json()
     name_prefix += "-" + ppt_raw_data['data']['presentation']['title']
@@ -438,13 +501,16 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
         print(f"Skipping {name_prefix} - PDF already present")
+        time.sleep(0.5)
         return
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{name_prefix}", exist_ok=True)
 
     images = []
 
-    with open(f"{CACHE_FOLDER}/ppt_download.txt", "w") as f:
+    aria2_input_file = f"{TEMP_FOLDER}/ppt_download.txt"
+
+    with open(aria2_input_file, "w") as f:
         for slide in ppt_raw_data['data']['slides']:
             if not slide.get('cover'):
                 continue
@@ -459,7 +525,9 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
         # with open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg", "wb") as f:
         #     f.write(requests.get(slide['cover']).content)
 
-    os.system(f"aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c")
+    cmd = f"aria2c -i {aria2_input_file} -x 16 -j 16 -c --log-level warn"
+
+    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}")
 
     from PIL import Image
 
@@ -510,9 +578,29 @@ def download_ppt(lesson_id: str, ppt_id: str, name_prefix: str = ""):
 # --- --- --- Section Main --- --- --- #
 
 
-for course in courses:
+def thread_worker(course):
+    # Make a thread-specific cache folder
+    TEMP_FOLDER = tempfile.mkdtemp()
+    print(f"Temp Folder: {TEMP_FOLDER}")
+
     try:
-        get_lesson_list(course)
+        get_lesson_list(course, TEMP_FOLDER)
     except Exception as e:
         print(e)
         print(f"Failed to parse {course['name']}", file=sys.stderr)
+
+    # Remove temp folder
+    print("Removing Temp Folder")
+    os.system(f"rm -rf {TEMP_FOLDER}")
+
+
+for course in courses:
+    pool.apply_async(thread_worker, (course,))
+try:
+    pool.close()
+    pool.join()
+except KeyboardInterrupt:
+    print("Interrupted")
+    interrupted = True
+    pool.terminate()
+    pool.join()
