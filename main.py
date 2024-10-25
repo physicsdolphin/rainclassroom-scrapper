@@ -24,12 +24,13 @@ if args.help:
 requirements:
     - Python >= 3.12
     - requests
-    - websocket-client
-    - qrcode
+    - websocket-client (qrcode login)
+    - qrcode (qrcode login)
+    - Pillow (Add answer to problem; Convert PPT to PDF)
     
 required system binaries:
-    - aria2c
-    - ffmpeg with nvenc support
+    - aria2c (Download files multi-threaded & resume support)
+    - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
 """)
 
     print(parser.format_help())
