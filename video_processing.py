@@ -48,7 +48,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
     video_concatenating_command = (
         f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
         f"-i '{CACHE_FOLDER}/concat.txt' "
-        f"-c:v hevc_nvenc -b:v 175k -maxrate 350k -bufsize 12800k -r 6 -rc-lookahead 63 "
+        f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
         f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
         f"-hide_banner -loglevel warning -stats")
 
