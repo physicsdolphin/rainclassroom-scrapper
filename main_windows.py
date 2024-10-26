@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import time
+import re
 
 parser = argparse.ArgumentParser(add_help=False)
 
@@ -36,7 +37,6 @@ requirements:
     - qrcode (qrcode login)
     - Pillow (Add answer to problem; Convert PPT to PDF)
 
-required system binaries:
     - aria2c (Download files multi-threaded & resume support)
     - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
 """)
@@ -144,7 +144,10 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
-    name_prefix += folder_name + "/"
+
+    name_prefix += folder_name.rstrip() + "/"
+    # Remove illegal characters for Windows filenames
+    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
@@ -179,7 +182,10 @@ from video_processing import download_segments_in_parallel, concatenate_segments
 def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
-    name_prefix += "-" + lesson['title']
+
+    name_prefix += "-" + lesson['title'].rstrip()
+    # Remove illegal characters for Windows filenames
+    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     if 'live' not in lesson_video_data['data']:
         print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
@@ -216,7 +222,10 @@ from ppt_processing import download_ppt
 def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
-    name_prefix += "-" + lesson['title']
+    name_prefix += "-" + lesson['title'].rstrip()
+
+    # Remove illegal characters for Windows filenames
+    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     if 'presentations' not in lesson_data['data']:
         print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)

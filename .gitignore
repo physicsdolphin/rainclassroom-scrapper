@@ -2,3 +2,5 @@
 /data/
 /cache/
 *.log
+__pycache__
+ffmpeg.exe

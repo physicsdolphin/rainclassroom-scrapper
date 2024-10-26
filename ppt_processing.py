@@ -1,6 +1,7 @@
 import os
 import time
 import subprocess
+import re
 
 CACHE_FOLDER = 'cache'
 DOWNLOAD_FOLDER = 'data'
@@ -11,7 +12,9 @@ def download_ppt(arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, YKT_HOST, ppt_
     # ppt_raw_data = rainclassroom_sess.get(
     #     f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt_id}&lesson_id={lesson_id}").json()
 
-    name_prefix += "-" + ppt_raw_data['data']['presentation']['title']
+    name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
+    # Remove illegal characters for Windows filenames
+    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
