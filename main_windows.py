@@ -105,8 +105,8 @@ else:
                             data=json.dumps({'UserID': userinfo['UserID'], 'Auth': userinfo['Auth']}))
 
     # Store session
-    with open(f"{DOWNLOAD_FOLDER}/session.txt", "w") as f:
-        f.write(rainclassroom_sess.cookies['sessionid'])
+    with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
+        f.write(rainclassroom_sess.cookies['sessionid']+ "\n")
 
 # --- --- --- Section Get Course List --- --- --- #
 
