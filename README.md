@@ -1,5 +1,5 @@
 environment:
-    - conda env create -f conda_environment.yml
+    conda env create -f conda_environment.yml
 
     
 requirements:
