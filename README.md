@@ -1,3 +1,5 @@
+environment:
+    - conda env create -f conda_environment.yml
 requirements:
     - Python >= 3.12
     - requests
