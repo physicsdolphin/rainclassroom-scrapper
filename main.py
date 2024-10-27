@@ -341,13 +341,13 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
 #     "data": {
 #         "lesson": {
 #             "id": "1267751345493205504",
-#             "title": "计算机网络原理  课堂提问（2）",
+#             "title": "",
 #             "startTime": 1728964537223,
 #             "endTime": 1728965834350,
 #             "teacherIdentityId": "15753469",
 #             "classroom": {
 #                 "id": "3134428",
-#                 "name": "2024秋-计算机网络原理-2",
+#                 "name": "",
 #                 "pro": true
 #             },
 #             "course": {
@@ -370,20 +370,20 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
 #         "presentations": [
 #             {
 #                 "id": "1267751453966295552",
-#                 "title": "计算机网络原理  课堂提问",
-#                 "cover": "https://thu-private-qn.yuketang.cn/slide/11789532/cover435_20241015115349.jpg?e=1729790227&token=IAM-gs8ue1pDIGwtR1CR0Zjdagg7Q2tn5G_1BqTmhmqa:CkT5RMnhXFxcVUWoxVU2xxjA6ac=",
+#                 "title": "",
+#                 "cover": "",
 #                 "slidesCount": 21,
 #                 "totalSlidesCount": 59,
 #                 "doubtCount": 0,
 #                 "collectCount": 0,
-#                 "conf": "{\"show_presentation\":\"film\",\"slides\":[\"1267751453966295553\",\"1267751453974684160\",\"1267751453974684162\",\"1267751453974684164\",\"1267751453983072768\",\"1267751453983072770\",\"1267751453983072772\",\"1267751453983072774\",\"1267751453991461376\",\"1267751453991461378\",\"1267751453991461379\",\"1267751453999849984\",\"1267751453999849985\",\"1267751453999849986\",\"1267751453999849987\",\"1267751454008238592\",\"1267751454008238593\",\"1267751454008238594\",\"1267751454008238595\",\"1267751454016627200\",\"1267751454016627201\"],\"hide_slides\":[]}"
+#                 "conf": ""
 #             }
 #         ],
 #         "user": {
-#             "identityId": "21640720",
-#             "avatar": "http://qn-sx.yuketang.cn/tougao_pic_AFzVVZcN5p9.png",
-#             "name": "董业恺",
-#             "number": "2022010426"
+#             "identityId": "",
+#             "avatar": "",
+#             "name": "",
+#             "number": ""
 #         },
 #         "activityId": "7970721",
 #         "memoContent": "",
@@ -391,7 +391,7 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
 #         "doubtSlides": [],
 #         "collectSlides": [],
 #         "checkIn": {
-#             "lessonId": "1267751345493205504",
+#             "lessonId": "",
 #             "identityId": "21640720",
 #             "score": 1000,
 #             "source": 5,
@@ -416,7 +416,7 @@ def download_segment(url: str, order: int, name_prefix: str = ""):
 #                 "problemType": 1,
 #                 "problemScore": 100,
 #                 "index": 3,
-#                 "cover": "https://thu-private-qn.yuketang.cn/slide/11789532/cover433_20241015115349.jpg?e=1729790227&token=IAM-gs8ue1pDIGwtR1CR0Zjdagg7Q2tn5G_1BqTmhmqa:hLi2EEWUQHgVeKyP9y4bi7neaYQ=",
+#                 "cover": "",
 #                 "presentationId": "1267751453966295552",
 #                 "answer": [
 #                     "D"
