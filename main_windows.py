@@ -157,6 +157,8 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            lesson['classroom_id'] = course['classroom_id']
+
             # Lesson
             try:
                 download_lesson_video(lesson, name_prefix + str(length - index))
@@ -166,6 +168,8 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            lesson['classroom_id'] = course['classroom_id']
+
             # Lesson
             try:
                 download_lesson_ppt(lesson, name_prefix + str(length - index))
@@ -183,33 +187,52 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
 
+
     name_prefix += "-" + lesson['title'].rstrip()
     # Remove illegal characters for Windows filenames
     name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     if 'live' not in lesson_video_data['data']:
-        print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
-        return
+        print(f"v3 protocol detection failed, falling back to v1")
+
+        fallback_flag = 1
+
+        lesson_video_data = rainclassroom_sess.get(
+            f"https://{YKT_HOST}/v/lesson/get_lesson_replay_timeline/?lesson_id={lesson['courseware_id']}").json()
+
+        if 'live_timeline' not in lesson_video_data['data']:
+            print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
+            return
+    else:
+        fallback_flag = 0
 
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4"):
         print(f"Skipping {name_prefix} - Video already present")
-        time.sleep(0.5)
+        time.sleep(0.25)
         return
 
     has_error = False
 
     # Download segments in parallel
     try:
-        download_segments_in_parallel(CACHE_FOLDER, lesson_video_data, name_prefix)
+        download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix)
     except Exception as e:
         print(e)
         print(f"Failed to download {name_prefix}", file=sys.stderr)
         has_error = True
 
     # Start concatenation if downloads were successful
-    if not has_error and len(lesson_video_data['data']['live']) > 0:
-        print(f"Concatenating {name_prefix}")
-        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
+    if not has_error:
+        if 'live' in lesson_video_data['data'] and len(lesson_video_data['data']['live']) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
+        elif 'live_timeline' in lesson_video_data['data'] and len(lesson_video_data['data']['live_timeline']) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live_timeline']))
+        else:
+            print('concatenate cannot start due to previous failure')
+    else:
+        print('concatenate cannot start due to previous failure')
 
     if has_error:
         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
@@ -228,18 +251,38 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
     name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     if 'presentations' not in lesson_data['data']:
-        print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)
-        return
+        print(f"v3 protocol detection failed, falling back to v1")
 
-    for index, ppt in enumerate(lesson_data['data']['presentations']):
-        # PPT
-        try:
-            ppt_raw_data = rainclassroom_sess.get(
-                f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson["courseware_id"]}").json()
-            download_ppt(args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, YKT_HOST, ppt_raw_data, name_prefix + f"-{index}")
-        except Exception as e:
-            print(e)
-            print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
+        ppt_info = rainclassroom_sess.get(
+            f"https://{YKT_HOST}/v2/api/web/lessonafter/{lesson['courseware_id']}/presentation?classroom_id={lesson['classroom_id']}").json()
+        if 'id' not in ppt_info['data'][0]:
+            print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)
+            return
+
+        for index, ppt in enumerate(ppt_info['data']):
+            # PPT
+            try:
+                ppt_raw_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/v2/api/web/lessonafter/presentation/{ppt['id']}?classroom_id={lesson['classroom_id']}").json()
+                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                             ppt_raw_data, name_prefix + f"-{index}")
+
+            except Exception as e:
+                print(e)
+                print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
+
+    else:
+        for index, ppt in enumerate(lesson_data['data']['presentations']):
+            # PPT
+            try:
+                ppt_raw_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson["courseware_id"]}").json()
+                download_ppt(3,args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                             ppt_raw_data, name_prefix + f"-{index}")
+
+            except Exception as e:
+                print(e)
+                print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
 
 # --- --- --- Section Main --- --- --- #

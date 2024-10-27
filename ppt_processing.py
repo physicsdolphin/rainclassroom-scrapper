@@ -3,52 +3,54 @@ import time
 import subprocess
 import re
 
-CACHE_FOLDER = 'cache'
-DOWNLOAD_FOLDER = 'data'
 
-def download_ppt(arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, YKT_HOST, ppt_raw_data, name_prefix: str = ""):
-
+def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ppt_raw_data, name_prefix: str = ""):
     print(f"Downloading {name_prefix}")
-    # ppt_raw_data = rainclassroom_sess.get(
-    #     f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt_id}&lesson_id={lesson_id}").json()
 
-    name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
+    if version == 1:
+        name_prefix += "-" + ppt_raw_data['data']['title'].rstrip()
+    else:
+        name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
+
     # Remove illegal characters for Windows filenames
     name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
 
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
         print(f"Skipping {name_prefix} - PDF already present")
-        time.sleep(0.5)
+        time.sleep(0.25)
         return
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{name_prefix}", exist_ok=True)
 
     images = []
 
-    with open(f"{CACHE_FOLDER}/ppt_download.txt", "w", encoding='utf-8') as f:
-        for slide in ppt_raw_data['data']['slides']:
-            if not slide.get('cover'):
-                continue
+    if version == 1:
+        with open(f"{CACHE_FOLDER}/ppt_download.txt", "w", encoding='utf-8') as f:
+            for slide in ppt_raw_data['data']['slides']:
+                if not slide.get('Cover'):
+                    continue
 
-            f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
-            images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
+                f.write(f"{slide['Cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['Index']}.jpg\n")
+                images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['Index']}.jpg")
 
-        # if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg"):
-        #     print(f"Skipping {name_prefix} - {slide['index']}")
-        #     continue
-        #
-        # with open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg", "wb") as f:
-        #     f.write(requests.get(slide['cover']).content)
+    else:
+        with open(f"{CACHE_FOLDER}/ppt_download.txt", "w", encoding='utf-8') as f:
+            for slide in ppt_raw_data['data']['slides']:
+                if not slide.get('cover'):
+                    continue
 
-    ppt_download_command = (f"aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c "
+                f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
+                images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
+
+    ppt_download_command = (f".\\aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c "
                             f"-l aria2c_ppt.log --log-level warn")
-    # os.system(f"aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c")
+
     subprocess.run(['powershell', '-Command', ppt_download_command], text=True)
 
     from PIL import Image
 
-    if arg_ans:
+    if arg_ans and version != 1:
         from PIL import ImageDraw, ImageFont
 
         for problem in ppt_raw_data['data']['slides']:
@@ -92,3 +94,6 @@ def download_ppt(arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, YKT_HOST, ppt_
                    append_images=images[1:])
 
     print(f"Converted {name_prefix}")
+
+    # can be done like this TODO
+    # l2 = map(lambda x: x['B2'], ppt_raw_data['data']['slides'])

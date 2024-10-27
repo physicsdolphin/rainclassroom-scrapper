@@ -43,6 +43,55 @@
 #      "is_finished": true
 # }
 
+# --- --- --- Section Download Lesson Video Old--- --- --- #
+
+{
+    "msg": "",
+    "data": {
+        "lesson_duration": 6923000,
+        "live_timeline": [
+            {
+                "replay_url": "https://bd-snap-video.xuetangx.com/bd-flv-video.xuetangx.com/xuetanglive/ProLive-3393352-75277078/xuetang_live_20200408132036.m3u8",
+                "duration": 171000,
+                "room_code": "ProLive-3393352-75277078",
+                "absolute_start": 1586323233000,
+                "absolute_end": 1586323404000,
+                "hidden_status": false,
+                "related_start": 35000,
+                "source": "bd",
+                "live_id": 286112,
+                "type": 2,
+                "order": 0
+            },
+            {
+                "replay_url": "https://kszt-playback.xuetangx.com/gifshow-xuetangx/a0b01f6f5285890801042726599/playlist_eof.m3u8?auth_key=1729973098-4419371689350062664-0-7af7d877d498d161e2b39ecc659f63bb",
+                "duration": 5850000,
+                "room_code": "kszt_WHY6X1WB3_Q",
+                "absolute_start": 1586324173000,
+                "absolute_end": 1586330023000,
+                "hidden_status": false,
+                "related_start": -12000,
+                "source": "th",
+                "live_id": 286180,
+                "type": 2,
+                "order": 1
+            }
+        ],
+        "recorded_video": [],
+        "danmu_timeline": [],
+        "lesson_timeline": [
+            {
+                "duration": 12748,
+                "dt": 1586323199012,
+                "code": "LESSON_START",
+                "type": "event",
+                "title": "\u4e0a\u8bfe\u5566\uff01"
+            },
+        ],
+        "hidden_status": false
+    },
+    "success": true
+}
 
 # --- --- --- Section Download Segment --- --- --- #
 # {
