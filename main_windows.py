@@ -200,11 +200,15 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
         lesson_video_data = rainclassroom_sess.get(
             f"https://{YKT_HOST}/v/lesson/get_lesson_replay_timeline/?lesson_id={lesson['courseware_id']}").json()
 
-        if 'live_timeline' not in lesson_video_data['data']:
+        if 'live_timeline' not in lesson_video_data['data'] or len(lesson_video_data['data']['live_timeline']) == 0:
             print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
             return
     else:
         fallback_flag = 0
+
+        if len(lesson_video_data['data']['live']) == 0:
+            print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
+            return
 
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4"):
         print(f"Skipping {name_prefix} - Video already present")

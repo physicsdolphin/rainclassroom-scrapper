@@ -59,4 +59,4 @@ dependencies:
   - zope.event=5.0=py312haa95532_0
   - zope.interface=5.4.0=py312h2bbff1b_0
   - zstd=1.5.6=h8880b57_0
-prefix: %userprofile%\.conda\envs\rainclassroom
+prefix: '%userprofile%\.conda\envs\rainclassroom'
