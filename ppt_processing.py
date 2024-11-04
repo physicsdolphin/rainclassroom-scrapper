@@ -13,7 +13,7 @@ def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ppt_r
         name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
 
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
 
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):

@@ -147,7 +147,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     name_prefix += folder_name.rstrip() + "/"
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
@@ -190,7 +190,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     name_prefix += "-" + lesson['title'].rstrip()
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
 
     if 'live' not in lesson_video_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")
@@ -252,7 +252,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
     name_prefix += "-" + lesson['title'].rstrip()
 
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
 
     if 'presentations' not in lesson_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")

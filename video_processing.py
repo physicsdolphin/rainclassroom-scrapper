@@ -16,10 +16,42 @@ def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str =
 
     print(f"Downloading {name_prefix} - {order}")
 
-    video_download_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
-                              f" -hide_banner -loglevel error -stats")
+    # video_download_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
+    #                           f" -hide_banner -loglevel error -stats")
+
+    video_download_command = (f".\\HLSDownloader -u '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
+                              f" -w 32 -workers 32 ")
 
     result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
+
+    # Check if HLSDownloader succeeded
+    if result.returncode != 0:
+        print(f"HLSDownloader failed for {name_prefix} - {order}. Attempting fallback with reduced workers.")
+
+        # Second attempt with HLSDownloader using 8 workers
+        video_download_command_mid = (f".\\HLSDownloader -u '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
+                                      f"-w 8 -workers 8")
+
+        mid_result = subprocess.run(['powershell', '-Command', video_download_command_mid], text=True)
+
+        # Check if the second attempt succeeded
+        if mid_result.returncode != 0:
+            print(f"Reduced workers HLSDownloader failed for {name_prefix} - {order}. Attempting fallback with ffmpeg.")
+
+            # Fallback to ffmpeg
+            ffmpeg_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
+                              f"-hide_banner -loglevel error -stats")
+
+            fallback_result = subprocess.run(['powershell', '-Command', ffmpeg_command], text=True)
+
+            if fallback_result.returncode == 0:
+                print(f"Successfully downloaded {name_prefix} - {order} using ffmpeg.")
+            else:
+                print(f"Failed to download {name_prefix} - {order} using both methods.")
+        else:
+            print(f"Successfully downloaded {name_prefix} - {order} using HLSDownloader with reduced workers.")
+    else:
+        print(f"Successfully downloaded {name_prefix} - {order} using HLSDownloader.")
 
     return result
 
@@ -94,6 +126,6 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
         f"-i '{CACHE_FOLDER}/concat.txt' "
         f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
         f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
-        f"-hide_banner -loglevel warning -stats")
+        f"-hide_banner -loglevel error -stats")
 
     subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
