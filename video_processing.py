@@ -1,9 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import subprocess,sys
+import subprocess, sys
 
 
-def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = "" ):
-
+def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
 
     video_download_command = (f".\\aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
@@ -12,8 +11,8 @@ def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = "" )
 
     return result
 
-def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str = "" ):
 
+def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
 
     # video_download_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
@@ -62,10 +61,11 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
     if fallback_flag:
         # Create a ThreadPoolExecutor to manage parallel downloads
         with ThreadPoolExecutor(max_workers=6) as executor:
-             # Dictionary to hold future results
+            # Dictionary to hold future results
             if 'm3u8' in lesson_video_data['data']['live_timeline'][0]['replay_url']:
                 future_to_order = {
-                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['replay_url'], order, name_prefix): order
+                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['replay_url'], order,
+                                    name_prefix): order
                     for order, segment in enumerate(lesson_video_data['data']['live_timeline'])
                 }
             else:
@@ -115,7 +115,6 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
 
 
 def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments):
-
     with open(f"{CACHE_FOLDER}/concat.txt", "w", encoding='utf-8') as f:
         f.write("\n".join(
             [f"file '../{CACHE_FOLDER}/{name_prefix}-{i}.mp4'" for i in range(num_segments)]

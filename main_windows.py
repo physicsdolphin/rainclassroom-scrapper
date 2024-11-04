@@ -58,7 +58,6 @@ CACHE_FOLDER = "cache"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(CACHE_FOLDER, exist_ok=True)
 
-
 # --- --- --- Section Load Session --- --- --- #
 
 if args.session_cookie is not None:
@@ -68,6 +67,7 @@ if args.session_cookie is not None:
 else:
     import websocket
     import qrcode
+
 
     def on_message(ws, message):
         global userinfo
@@ -106,7 +106,7 @@ else:
 
     # Store session
     with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
-        f.write(rainclassroom_sess.cookies['sessionid']+ "\n")
+        f.write(rainclassroom_sess.cookies['sessionid'] + "\n")
 
 # --- --- --- Section Get Course List --- --- --- #
 
@@ -187,7 +187,6 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
 
-
     name_prefix += "-" + lesson['title'].rstrip()
     # Remove illegal characters for Windows filenames
     name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
@@ -232,7 +231,8 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
             concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
         elif 'live_timeline' in lesson_video_data['data'] and len(lesson_video_data['data']['live_timeline']) > 0:
             print(f"Concatenating {name_prefix}")
-            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live_timeline']))
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix,
+                                 len(lesson_video_data['data']['live_timeline']))
         else:
             print('concatenate cannot start due to previous failure')
     else:
@@ -281,7 +281,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             try:
                 ppt_raw_data = rainclassroom_sess.get(
                     f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson["courseware_id"]}").json()
-                download_ppt(3,args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
