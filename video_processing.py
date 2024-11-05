@@ -115,16 +115,46 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
 
 
 def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments):
+    # Create the concat file with segment paths
     with open(f"{CACHE_FOLDER}/concat.txt", "w", encoding='utf-8') as f:
         f.write("\n".join(
             [f"file '../{CACHE_FOLDER}/{name_prefix}-{i}.mp4'" for i in range(num_segments)]
         ))
 
+    # First video concatenation command using CUDA acceleration
     video_concatenating_command = (
         f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
         f"-i '{CACHE_FOLDER}/concat.txt' "
         f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
         f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
-        f"-hide_banner -loglevel error -stats")
+        f"-hide_banner -loglevel error -stats"
+    )
 
-    subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
+    # Run the first command
+    result = subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
+
+    # If the first command fails, try the fallback
+    if result.returncode != 0:
+        print(f"First attempt failed. Attempting fallback with software encoding.")
+
+        # Fallback video concatenation command using cuvid acceleration
+        video_concatenating_command_fallback = (
+            f"ffmpeg -f concat -safe 0 -hwaccel cuda "
+            f"-i '{CACHE_FOLDER}/concat.txt' "
+            f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
+            f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -y "
+            f"-hide_banner -loglevel error -stats"
+        )
+
+        # Run the fallback command
+        fallback_result = subprocess.run(['powershell', '-Command', video_concatenating_command_fallback], text=True)
+
+        # Check if the fallback also fails
+        if fallback_result.returncode != 0:
+            print(f"Both attempts failed to concatenate video segments.")
+        else:
+            print(f"Successfully concatenated video segments.")
+    else:
+        print(f"Successfully concatenated video segments using CUDA acceleration.")
+
+    return result

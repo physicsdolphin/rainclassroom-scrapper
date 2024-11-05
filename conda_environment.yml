@@ -49,7 +49,6 @@ dependencies:
   - urllib3=2.2.3=py312haa95532_0
   - vc=14.40=h2eaa2aa_1
   - vs2015_runtime=14.40.33807=h98bb1dd_1
-  - websocket=0.2.1=pyhd8ed1ab_0
   - websocket-client=1.8.0=py312haa95532_0
   - wheel=0.44.0=py312haa95532_0
   - win_inet_pton=1.1.0=py312haa95532_0
