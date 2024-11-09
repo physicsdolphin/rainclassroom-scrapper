@@ -134,6 +134,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
+    folder_name = re.sub(r'[<>:"\\|?*\xa0]', '_', folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -226,6 +227,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     # Start concatenation if downloads were successful
     if not has_error:
+        sleep(1)
         if 'live' in lesson_video_data['data'] and len(lesson_video_data['data']['live']) > 0:
             print(f"Concatenating {name_prefix}")
             concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
@@ -294,6 +296,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
 
 import option as opt
 
+print('successfully parsed account info!')
 allin_flag = opt.ask_for_allin()
 
 for course in courses:

@@ -19,6 +19,7 @@ def ask_for_input():
 
 def ask_for_allin():
     while True:
+        print('asking for whether to download all at once...')
         confirmation = input(
             "All in Means download everything at once.\n"
             "This may take a long time and require over 100G of disk space.\n"
