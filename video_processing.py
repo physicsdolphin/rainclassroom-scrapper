@@ -1,3 +1,5 @@
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess, sys
 
@@ -12,60 +14,56 @@ def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
     return result
 
 
-def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
+def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str = "", max_retries: int = 35):
     print(f"Downloading {name_prefix} - {order}")
+    print(f"Downloading from {url}")
+
+    # Initial download attempt with 32 workers
 
     # video_download_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
     #                           f" -hide_banner -loglevel error -stats")
 
-    video_download_command = (f".\\HLSDownloader -u '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
-                              f" -w 32 -workers 32 ")
+    # video_download_command = (f".\\HLSDownloader -u '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
+    #                           f" -w 32 -workers 32 ")
+
+    # video_download_command = (f".\\m3u8dl-windows-amd64.exe -i '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
+    #                           f" -retry 1 -t '{CACHE_FOLDER}' -thread 32")
+
+    # video_download_command = (
+    #     f".\\vsd.exe save '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
+    #     f"-d {CACHE_FOLDER} --retry-count 15 -t 4")
+
+    output_path = f"{CACHE_FOLDER}/{name_prefix}-{order}"
+    save_dir = os.path.dirname(output_path)
+    save_name = os.path.basename(output_path)
+
+    if 'mp3' in url:
+        video_download_command = (
+            f".\\ffmpeg -i '{url}' -c:v copy -c:a copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
+            f"-hide_banner -loglevel error -stats"
+        )
+    else:
+        video_download_command = (
+        f".\\N_m3u8DL-RE.exe '{url}' --tmp-dir './{CACHE_FOLDER}' "
+        f"--save-dir '{save_dir}' --save-name '{save_name}' -M format=mp4 "
+        f"--check-segments-count false --download-retry-count 15 --thread-count 32"
+        )
 
     result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
 
-    # Check if HLSDownloader succeeded
-    if result.returncode != 0:
-        print(f"HLSDownloader failed for {name_prefix} - {order}. Attempting fallback with reduced workers.")
-
-        # Second attempt with HLSDownloader using 8 workers
-        video_download_command_mid = (f".\\HLSDownloader -u '{url}' -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
-                                      f"-w 8 -workers 8")
-
-        mid_result = subprocess.run(['powershell', '-Command', video_download_command_mid], text=True)
-
-        # Check if the second attempt succeeded
-        if mid_result.returncode != 0:
-            print(f"Reduced workers HLSDownloader failed for {name_prefix} - {order}. Attempting fallback with ffmpeg.")
-
-            # Fallback to ffmpeg
-            ffmpeg_command = (f".\\ffmpeg -i '{url}' -c copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
-                              f"-hide_banner -loglevel error -stats")
-
-            fallback_result = subprocess.run(['powershell', '-Command', ffmpeg_command], text=True)
-
-            if fallback_result.returncode == 0:
-                print(f"Successfully downloaded {name_prefix} - {order} using ffmpeg.")
-            else:
-                print(f"Failed to download {name_prefix} - {order} using both methods.")
-        else:
-            print(f"Successfully downloaded {name_prefix} - {order} using HLSDownloader with reduced workers.")
-    else:
-        print(f"Successfully downloaded {name_prefix} - {order} using HLSDownloader.")
-
     return result
-
 
 def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix):
     has_error = False
 
     if fallback_flag:
         # Create a ThreadPoolExecutor to manage parallel downloads
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=1) as executor:
             # Dictionary to hold future results
             if 'm3u8' in lesson_video_data['data']['live_timeline'][0]['replay_url']:
                 future_to_order = {
                     executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['replay_url'], order,
-                                    name_prefix): order
+                                    name_prefix, max_retries=10): order
                     for order, segment in enumerate(lesson_video_data['data']['live_timeline'])
                 }
             else:
@@ -91,7 +89,7 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
             # Dictionary to hold future results
             if 'm3u8' in lesson_video_data['data']['live'][0]['url']:
                 future_to_order = {
-                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['url'], order, name_prefix): order
+                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['url'], order, name_prefix, max_retries=10): order
                     for order, segment in enumerate(lesson_video_data['data']['live'])
                 }
             else:
@@ -115,11 +113,13 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
 
 
 def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments):
+
     # Create the concat file with segment paths
     with open(f"{CACHE_FOLDER}/concat.txt", "w", encoding='utf-8') as f:
-        f.write("\n".join(
-            [f"file '../{CACHE_FOLDER}/{name_prefix}-{i}.mp4'" for i in range(num_segments)]
-        ))
+        for i in range(num_segments):
+            video_file = f"../{CACHE_FOLDER}/{name_prefix}-{i}.mp4"
+            if os.path.exists(os.path.join(CACHE_FOLDER, f"{name_prefix}-{i}.mp4")):  # Check if the file exists
+                f.write(f"file '{video_file}'\n")
 
     # First video concatenation command using CUDA acceleration
     video_concatenating_command = (
@@ -142,8 +142,8 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
             f"ffmpeg -f concat -safe 0 -hwaccel cuda "
             f"-i '{CACHE_FOLDER}/concat.txt' "
             f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
-            f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -y "
-            f"-hide_banner -loglevel error -stats"
+            f"-c:a copy '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -y "
+            f"-hide_banner -loglevel error -stats -err_detect ignore_err -fflags +discardcorrupt"
         )
 
         # Run the fallback command
