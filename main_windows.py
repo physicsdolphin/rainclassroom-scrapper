@@ -227,7 +227,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     # Start concatenation if downloads were successful
     if not has_error:
-        sleep(1)
+        time.sleep(1)
         if 'live' in lesson_video_data['data'] and len(lesson_video_data['data']['live']) > 0:
             print(f"Concatenating {name_prefix}")
             concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
