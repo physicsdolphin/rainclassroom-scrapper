@@ -167,7 +167,31 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 print(e)
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
+        print('sbykt may not prepare cold data in one run, rescanning for missing ones')
+
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            lesson['classroom_id'] = course['classroom_id']
+
+            # Lesson
+            try:
+                download_lesson_video(lesson, name_prefix + str(length - index))
+            except Exception as e:
+                print(e)
+                print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
+
     if args.ppt:
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            lesson['classroom_id'] = course['classroom_id']
+
+            # Lesson
+            try:
+                download_lesson_ppt(lesson, name_prefix + str(length - index))
+            except Exception as e:
+                print(e)
+                print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
+
+        print('sbykt may not prepare cold data in one run, rescanning for missing ones')
+
         for index, lesson in enumerate(lesson_data['data']['activities']):
             lesson['classroom_id'] = course['classroom_id']
 

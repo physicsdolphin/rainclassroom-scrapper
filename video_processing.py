@@ -46,7 +46,7 @@ def download_segment_m3u8(CACHE_FOLDER, url: str, order: int, name_prefix: str =
         video_download_command = (
         f".\\N_m3u8DL-RE.exe '{url}' --tmp-dir './{CACHE_FOLDER}' "
         f"--save-dir '{save_dir}' --save-name '{save_name}' -M format=mp4 "
-        f"--check-segments-count false --download-retry-count 15 --thread-count 32"
+        f"--check-segments-count false --download-retry-count 15 --thread-count 64"
         )
 
     result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
@@ -117,9 +117,12 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
     # Create the concat file with segment paths
     with open(f"{CACHE_FOLDER}/concat.txt", "w", encoding='utf-8') as f:
         for i in range(num_segments):
-            video_file = f"../{CACHE_FOLDER}/{name_prefix}-{i}.mp4"
+            video_file_mp4 = f"../{CACHE_FOLDER}/{name_prefix}-{i}.mp4"
+            video_file_ts = f"../{CACHE_FOLDER}/{name_prefix}-{i}.ts"
             if os.path.exists(os.path.join(CACHE_FOLDER, f"{name_prefix}-{i}.mp4")):  # Check if the file exists
-                f.write(f"file '{video_file}'\n")
+                f.write(f"file '{video_file_mp4}'\n")
+            if os.path.exists(os.path.join(CACHE_FOLDER, f"{name_prefix}-{i}.ts")):  # Check if the file exists
+                f.write(f"file '{video_file_ts}'\n")
 
     # First video concatenation command using CUDA acceleration
     video_concatenating_command = (
@@ -139,7 +142,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
         # Fallback video concatenation command using cuvid acceleration
         video_concatenating_command_fallback = (
-            f"ffmpeg -f concat -safe 0 -hwaccel cuda "
+            f"ffmpeg -f concat -safe 0 "
             f"-i '{CACHE_FOLDER}/concat.txt' "
             f"-c:v hevc_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
             f"-c:a copy '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -y "
