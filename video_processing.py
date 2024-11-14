@@ -58,19 +58,22 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
 
     if fallback_flag:
         # Create a ThreadPoolExecutor to manage parallel downloads
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             # Dictionary to hold future results
-            if 'm3u8' in lesson_video_data['data']['live_timeline'][0]['replay_url']:
-                future_to_order = {
-                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['replay_url'], order,
-                                    name_prefix, max_retries=10): order
-                    for order, segment in enumerate(lesson_video_data['data']['live_timeline'])
-                }
-            else:
-                future_to_order = {
-                    executor.submit(download_segment, CACHE_FOLDER, segment['replay_url'], order, name_prefix): order
-                    for order, segment in enumerate(lesson_video_data['data']['live_timeline'])
-                }
+            future_to_order = {}
+
+            for order, segment in enumerate(lesson_video_data['data']['live_timeline']):
+                replay_url = segment['replay_url']
+
+                # Determine which function to use based on the presence of 'm3u8' in the replay_url
+                if 'm3u8' in replay_url:
+                    future = executor.submit(download_segment_m3u8, CACHE_FOLDER, replay_url, order, name_prefix,
+                                             max_retries=10)
+                else:
+                    future = executor.submit(download_segment, CACHE_FOLDER, replay_url, order, name_prefix)
+
+                # Store the future and order for tracking
+                future_to_order[future] = order
 
             # Iterate over the completed futures
             for future in as_completed(future_to_order):
@@ -85,18 +88,22 @@ def download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data
 
     else:
         # Create a ThreadPoolExecutor to manage parallel downloads
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             # Dictionary to hold future results
-            if 'm3u8' in lesson_video_data['data']['live'][0]['url']:
-                future_to_order = {
-                    executor.submit(download_segment_m3u8, CACHE_FOLDER, segment['url'], order, name_prefix, max_retries=10): order
-                    for order, segment in enumerate(lesson_video_data['data']['live'])
-                }
-            else:
-                future_to_order = {
-                    executor.submit(download_segment, CACHE_FOLDER, segment['url'], order, name_prefix): order
-                    for order, segment in enumerate(lesson_video_data['data']['live'])
-                }
+            future_to_order = {}
+
+            for order, segment in enumerate(lesson_video_data['data']['live']):
+                url = segment['url']
+
+                # Determine which function to use based on the presence of 'm3u8' in the URL
+                if 'm3u8' in url:
+                    future = executor.submit(download_segment_m3u8, CACHE_FOLDER, url, order, name_prefix,
+                                             max_retries=10)
+                else:
+                    future = executor.submit(download_segment, CACHE_FOLDER, url, order, name_prefix)
+
+                # Store the future and order for tracking
+                future_to_order[future] = order
 
             # Iterate over the completed futures
             for future in as_completed(future_to_order):
