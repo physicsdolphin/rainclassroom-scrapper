@@ -134,7 +134,8 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
-    folder_name = re.sub(r'[<>:"\\|?*\xa0]', '_', folder_name)
+    folder_name = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', folder_name)
+    folder_name = re.sub(r'[\x80-\xFF]', '', folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -148,7 +149,8 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     name_prefix += folder_name.rstrip() + "/"
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
+    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
@@ -214,7 +216,14 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     name_prefix += "-" + lesson['title'].rstrip()
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
+    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
+    # Step 2: Preserve the first `/` and replace the rest with underscores
+    parts = name_prefix.split("/", 1)  # Split into two parts at the first slash
+    if len(parts) > 1:
+        name_prefix = parts[0] + "/" + parts[1].replace("/", "_")  # Preserve first slash, replace others
+    else:
+        name_prefix = parts[0]  # No slashes found
 
     if 'live' not in lesson_video_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")
@@ -278,7 +287,8 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
     name_prefix += "-" + lesson['title'].rstrip()
 
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
+    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
 
     if 'presentations' not in lesson_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")

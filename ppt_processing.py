@@ -13,7 +13,14 @@ def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ppt_r
         name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
 
     # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\xa0]', '_', name_prefix)
+    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
+    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
+    # Step 2: Preserve the first `/` and replace the rest with underscores
+    parts = name_prefix.split("/", 1)  # Split into two parts at the first slash
+    if len(parts) > 1:
+        name_prefix = parts[0] + "/" + parts[1].replace("/", "_")  # Preserve first slash, replace others
+    else:
+        name_prefix = parts[0]  # No slashes found
 
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
