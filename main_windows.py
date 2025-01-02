@@ -3,12 +3,18 @@ import sys
 import argparse
 import time
 import re
+import traceback
+import option
 
 parser = argparse.ArgumentParser(add_help=False)
 
 parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
+parser.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
+parser.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe")
+parser.add_argument("-a", "--all", action="store_true", help="All in")
+parser.add_argument("-na", "--no-all", action="store_true", help="No All in")
 parser.add_argument("--video", action="store_true", help="Download Video")
 parser.add_argument("--ppt", action="store_true", help="Download PPT")
 parser.add_argument("--ppt-to-pdf", action="store_true", help="Convert PPT to PDF", default=True)
@@ -131,11 +137,11 @@ rainclassroom_sess.cookies['xtbz'] = 'ykt'
 
 def get_lesson_list(course: dict, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(
-        f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
+        f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=-1&page=0&offset=500&sort=-1").json()
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
-    folder_name = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', folder_name)
-    folder_name = re.sub(r'[\x80-\xFF]', '', folder_name)
+    folder_name = option.windows_filesame_sanitizer(folder_name)
+    print('folder name would be:',folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -147,10 +153,9 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
 
+
     name_prefix += folder_name.rstrip() + "/"
-    # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
-    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
@@ -160,48 +165,70 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if not lesson['type'] in [14, 15]:
+                continue
+
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                download_lesson_video(lesson, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+                if lesson['type'] == 14:
+                    print('Normal type detected!')
+                    download_lesson_video(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 15:
+                    print('MOOC type detected!')
+                    download_lesson_video_type15(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
         print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if not lesson['type'] in [14, 15]:
+                continue
+
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                download_lesson_video(lesson, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+                if lesson['type'] == 14:
+                    print('Normal type detected!')
+                    download_lesson_video(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 15:
+                    print('MOOC type detected!')
+                    download_lesson_video_type15(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if lesson['type'] == 15:
+                print("mooc type has no ppts!")
+                continue
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
                 download_lesson_ppt(lesson, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
         print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
         for index, lesson in enumerate(lesson_data['data']['activities']):
+            if lesson['type'] == 15:
+                print("mooc type has no ppts!")
+                continue
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
                 download_lesson_ppt(lesson, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
 
@@ -215,15 +242,10 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
 
     name_prefix += "-" + lesson['title'].rstrip()
-    # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
-    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
-    # Step 2: Preserve the first `/` and replace the rest with underscores
-    parts = name_prefix.split("/", 1)  # Split into two parts at the first slash
-    if len(parts) > 1:
-        name_prefix = parts[0] + "/" + parts[1].replace("/", "_")  # Preserve first slash, replace others
-    else:
-        name_prefix = parts[0]  # No slashes found
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+
+    if idm_flag:
+        name_prefix = re.sub(r'[“”]', '_', name_prefix)
 
     if 'live' not in lesson_video_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")
@@ -252,9 +274,9 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
 
     # Download segments in parallel
     try:
-        download_segments_in_parallel(fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix)
-    except Exception as e:
-        print(e)
+        download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix)
+    except Exception:
+        print(traceback.format_exc())
         print(f"Failed to download {name_prefix}", file=sys.stderr)
         has_error = True
 
@@ -278,6 +300,76 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
             f.write(f"{name_prefix}\n")
 
 
+def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
+    mooc_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/c27/online_courseware/xty/kls/pub_news/{lesson['courseware_id']}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
+
+    for chapter in mooc_data['data']['content_info']:
+        chapter_name = chapter['name']
+
+        for section in chapter['section_list']:
+            section_name = section['name']
+
+            for lesson_d in section['leaf_list']:
+                lesson_name = lesson_d['title']
+                lesson_id = lesson_d['id']
+                has_error = False
+
+                name_prefix_lesson = name_prefix + chapter_name + " - " + section_name + " - " + lesson_name
+                name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+
+                if idm_flag:
+                    name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
+
+                mooc_lesson_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(lesson_id)}/",
+                    headers={
+                        "Xtbz": "ykt",
+                        "Classroom-Id": str(lesson['classroom_id'])
+                    }
+                ).json()
+
+                mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
+
+                mooc_media_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
+                ).json()
+
+                quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+                quality_keys.sort(key=lambda x: x[0], reverse=True)
+                download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+                # print(download_url_list)
+
+                # Download segments in parallel
+                try:
+                    download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_lesson)
+                except Exception:
+                    print(traceback.format_exc())
+                    print(f"Failed to download {name_prefix}", file=sys.stderr)
+                    has_error = True
+
+                # Start concatenation if downloads were successful
+                if not has_error:
+                    time.sleep(1)
+                    if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
+                        print(f"Concatenating {name_prefix}")
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+                    else:
+                        print('concatenate cannot start due to previous failure')
+                else:
+                    print('concatenate cannot start due to previous failure')
+
+                if has_error:
+                    with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                        f.write(f"{name_prefix}\n")
+
+
+
 from ppt_processing import download_ppt
 
 
@@ -286,9 +378,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
         f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
     name_prefix += "-" + lesson['title'].rstrip()
 
-    # Remove illegal characters for Windows filenames
-    name_prefix = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', name_prefix)
-    name_prefix = re.sub(r'[\x80-\xFF]', '', name_prefix)
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
 
     if 'presentations' not in lesson_data['data']:
         print(f"v3 protocol detection failed, falling back to v1")
@@ -308,7 +398,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
-                print(e)
+                print(traceback.format_exc())
                 print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
     else:
@@ -321,7 +411,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
-                print(e)
+                print(traceback.format_exc())
                 print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
 
@@ -331,7 +421,25 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
 import option as opt
 
 print('successfully parsed account info!')
-allin_flag = opt.ask_for_allin()
+
+if args.all and args.no_all:
+    print("'-a' and '-na' cannot be used together")
+if args.idm and args.no_idm:
+    print("'-idm' and '-no_idm' cannot be used together")
+
+if args.all:
+    allin_flag = 1
+elif args.no_all:
+    allin_flag = 0
+else:
+    allin_flag = opt.ask_for_allin()
+
+if args.idm:
+    idm_flag = 1
+elif args.no_idm:
+    idm_flag = 0
+else:
+    idm_flag = opt.ask_for_idm()
 
 for course in courses:
     skip_flag = 0
@@ -346,5 +454,5 @@ for course in courses:
         else:
             get_lesson_list(course)
     except Exception as e:
-        print(e)
+        print(traceback.format_exc())
         print(f"Failed to parse {course['name']}", file=sys.stderr)
