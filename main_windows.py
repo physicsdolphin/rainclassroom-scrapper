@@ -141,6 +141,11 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
     folder_name = option.windows_filesame_sanitizer(folder_name)
+
+    if idm_flag:
+        folder_name = folder_name.replace('/', '\\')
+        folder_name = re.sub(r'[“”]', '_', folder_name)
+
     print('folder name would be:',folder_name)
 
     # Rename old folder
@@ -165,7 +170,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if not lesson['type'] in [14, 15]:
+            if not lesson['type'] in [14, 15, 17]:
                 continue
 
             lesson['classroom_id'] = course['classroom_id']
@@ -176,8 +181,11 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                     print('Normal type detected!')
                     download_lesson_video(lesson, name_prefix + str(length - index))
                 elif lesson['type'] == 15:
-                    print('MOOC type detected!')
+                    print('MOOCv2 type detected!')
                     download_lesson_video_type15(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 17:
+                    print('MOOCv1 type detected!')
+                    download_lesson_video_type17(lesson, name_prefix + str(length - index))
             except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
@@ -185,7 +193,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if not lesson['type'] in [14, 15]:
+            if not lesson['type'] in [14, 15, 17]:
                 continue
 
             lesson['classroom_id'] = course['classroom_id']
@@ -196,15 +204,18 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                     print('Normal type detected!')
                     download_lesson_video(lesson, name_prefix + str(length - index))
                 elif lesson['type'] == 15:
-                    print('MOOC type detected!')
+                    print('MOOCv2 type detected!')
                     download_lesson_video_type15(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 17:
+                    print('MOOCv1 type detected!')
+                    download_lesson_video_type17(lesson, name_prefix + str(length - index))
             except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if lesson['type'] == 15:
+            if lesson['type'] in (15, 17):
                 print("mooc type has no ppts!")
                 continue
             lesson['classroom_id'] = course['classroom_id']
@@ -219,7 +230,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if lesson['type'] == 15:
+            if lesson['type'] in (15, 17):
                 print("mooc type has no ppts!")
                 continue
             lesson['classroom_id'] = course['classroom_id']
@@ -312,6 +323,62 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
     for chapter in mooc_data['data']['content_info']:
         chapter_name = chapter['name']
 
+        for orphan in chapter['leaf_list']:
+            orphan_title = orphan['title']
+            orphan_id = orphan['id']
+            has_error = False
+
+            name_prefix_orphan = name_prefix + chapter_name + " - " + orphan_title
+            name_prefix_orphan = option.windows_filesame_sanitizer(name_prefix_orphan)
+
+            if idm_flag:
+                name_prefix_orphan = re.sub(r'[“”]', '_', name_prefix_orphan)
+
+            mooc_orphan_data = rainclassroom_sess.get(
+                f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(orphan_id)}/",
+                headers={
+                    "Xtbz": "ykt",
+                    "Classroom-Id": str(lesson['classroom_id'])
+                }
+            ).json()
+
+            if 'data' not in mooc_orphan_data or 'content_info' not in mooc_orphan_data['data']:
+                print('no media detected, skipping!')
+                continue
+
+            mooc_orphan_media_id = mooc_orphan_data['data']['content_info']['media']['ccid']
+            mooc_orphan_media_data = rainclassroom_sess.get(
+                f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_orphan_media_id}&provider=cc&is_single=0&format=json"
+            ).json()
+
+            quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
+            quality_keys.sort(key=lambda x: x[0], reverse=True)
+            download_url_list = mooc_orphan_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+            # print(download_url_list)
+
+            # Download segments in parallel
+            try:
+                download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_orphan)
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download {name_prefix}", file=sys.stderr)
+                has_error = True
+
+            # Start concatenation if downloads were successful
+            if not has_error:
+                time.sleep(0.25)
+                if 'playurl' in mooc_orphan_media_data['data'] and len(download_url_list) > 0:
+                    print(f"Concatenating {name_prefix}")
+                    concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_orphan, len(download_url_list))
+                else:
+                    print('concatenate cannot start due to previous failure')
+            else:
+                print('concatenate cannot start due to previous failure')
+
+            if has_error:
+                with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                    f.write(f"{name_prefix}\n")
+
         for section in chapter['section_list']:
             section_name = section['name']
 
@@ -333,6 +400,10 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                         "Classroom-Id": str(lesson['classroom_id'])
                     }
                 ).json()
+
+                if 'data' not in mooc_lesson_data or 'content_info' not in mooc_lesson_data['data']:
+                    print('no media detected, skipping!')
+                    continue
 
                 mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
 
@@ -368,6 +439,76 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                     with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
                         f.write(f"{name_prefix}\n")
 
+
+def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
+    mooc_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/c27/online_courseware/xty/kls/pub_news/{lesson['courseware_id']}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
+
+    if 'name' not in mooc_data['data']['content_info'] or 'content_info' not in mooc_data['data']:
+        print('no media detected, skipping!')
+        return
+
+    only_lesson_name = mooc_data['data']['content_info']['name']
+    only_lesson_id = mooc_data['data']['content_info']['id']
+
+    has_error = False
+
+    name_prefix_lesson = name_prefix + only_lesson_name
+    name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+
+    if idm_flag:
+        name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
+
+    mooc_lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(only_lesson_id)}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
+
+    if 'data' not in mooc_lesson_data or 'content_info' not in mooc_lesson_data['data']:
+        print('no media detected, skipping!')
+        return
+
+    mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
+
+    mooc_media_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
+    ).json()
+
+    quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+    quality_keys.sort(key=lambda x: x[0], reverse=True)
+    download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+    # print(download_url_list)
+
+    # Download segments in parallel
+    try:
+        download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_lesson)
+    except Exception:
+        print(traceback.format_exc())
+        print(f"Failed to download {name_prefix}", file=sys.stderr)
+        has_error = True
+
+    # Start concatenation if downloads were successful
+    if not has_error:
+        time.sleep(1)
+        if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+        else:
+            print('concatenate cannot start due to previous failure')
+    else:
+        print('concatenate cannot start due to previous failure')
+
+    if has_error:
+        with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+            f.write(f"{name_prefix}\n")
 
 
 from ppt_processing import download_ppt

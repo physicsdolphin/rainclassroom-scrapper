@@ -246,7 +246,8 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
     video_concatenating_command = (
         f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
         f"-i '{CACHE_FOLDER}/concat.txt' "
-        f"-c:v av1_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
+        f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
+        f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
         f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
         f"-hide_banner -loglevel error -stats"
     )
@@ -262,7 +263,8 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
         video_concatenating_command_fallback = (
             f"ffmpeg -f concat -safe 0 "
             f"-i '{CACHE_FOLDER}/concat.txt' "
-            f"-c:v av1_nvenc -cq 28 -surfaces 64 -bufsize 12800k -r 7.5 -rc-lookahead 63 "
+            f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16 "
+            f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
             f"-c:a copy '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -y "
             f"-hide_banner -loglevel error -stats -err_detect ignore_err -fflags +discardcorrupt"
         )
