@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import sys
 import argparse
@@ -5,6 +7,9 @@ import time
 import re
 import traceback
 import option
+
+if sys.platform == 'win32':
+    os.system('chcp 65001')
 
 parser = argparse.ArgumentParser(add_help=False)
 
@@ -170,14 +175,17 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if not lesson['type'] in [14, 15, 17]:
+            if not lesson['type'] in [2, 14, 15, 17]:
                 continue
 
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                if lesson['type'] == 14:
+                if lesson['type'] == 2:
+                    print('Script type detected!')
+                    download_lesson_video_type2(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 14:
                     print('Normal type detected!')
                     download_lesson_video(lesson, name_prefix + str(length - index))
                 elif lesson['type'] == 15:
@@ -511,6 +519,56 @@ def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
             f.write(f"{name_prefix}\n")
 
 
+def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
+    # "id": 6036907, "courseware_id": "1055476"
+    # https://pro.yuketang.cn/v2/api/web/cards/detlist/1055476?classroom_id=3058049
+    
+    lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
+    name_prefix += "-" + lesson_data['data']['Title'].strip()
+    
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    
+    for slide in lesson_data['data']['Slides']:
+        slide_id = slide['PageIndex']
+        for shape in slide['Shapes']:
+            if shape['ShapeType'] == 1 and 'file_title' in shape:
+                file_title = shape['file_title']
+                quality_keys = list(map(lambda x: (int(x[7:]), x), shape['playurls'].keys()))
+                quality_keys.sort(key=lambda x: x[0], reverse=True)
+                download_url_list = shape['playurls'][quality_keys[0][1]]
+                
+                name_prefix_shape = name_prefix + f" - {slide_id} - {file_title}"
+                name_prefix_shape = option.windows_filesame_sanitizer(name_prefix_shape)
+                
+                if idm_flag:
+                    name_prefix_shape = re.sub(r'[“”]', '_', name_prefix_shape)
+
+                # Download segments in parallel
+                try:
+                    download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_shape)
+                    has_error = False
+                except Exception:
+                    print(traceback.format_exc())
+                    print(f"Failed to download {name_prefix}", file=sys.stderr)
+                    has_error = True
+
+                # Start concatenation if downloads were successful
+                if not has_error:
+                    time.sleep(1)
+                    if 'playurl' in shape and len(download_url_list) > 0:
+                        print(f"Concatenating {name_prefix}")
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_shape, len(download_url_list))
+                    else:
+                        print('concatenate cannot start due to previous failure')
+                else:
+                    print('concatenate cannot start due to previous failure')
+
+                if has_error:
+                    with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                        f.write(f"{name_prefix}\n")
+
+
 from ppt_processing import download_ppt
 
 
@@ -547,7 +605,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             # PPT
             try:
                 ppt_raw_data = rainclassroom_sess.get(
-                    f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson["courseware_id"]}").json()
+                    f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson['courseware_id']}").json()
                 download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
                              ppt_raw_data, name_prefix + f"-{index}")
 
