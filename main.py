@@ -1,27 +1,43 @@
+# -*- coding: utf-8 -*-
+
 import os
-import signal
 import subprocess
 import sys
-
 import argparse
 import time
-from multiprocessing.pool import ThreadPool
+import re
+import traceback
+import option
+import shutil
+
+if sys.platform == 'win32':
+    os.system('chcp 65001')
 
 parser = argparse.ArgumentParser(add_help=False)
 
 parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
-parser.add_argument("--video", action="store_true", help="Download Video")
-parser.add_argument("--ppt", action="store_true", help="Download PPT")
-parser.add_argument("--ppt-to-pdf", action="store_true", help="Convert PPT to PDF", default=True)
-parser.add_argument("--ppt-problem-answer", action="store_true", help="Store PPT Problem Answer", default=True)
+parser.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
+parser.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system is not Windows")
+parser.add_argument("-a", "--all", action="store_true", help="Download all content without asking")
+parser.add_argument("-na", "--no-all", action="store_true", help="Ask before downloading each course")
+parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Download Video")
+parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
+parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
+parser.add_argument("-npa", "--no-ppt-answer", action="store_true", help="Don't Store PPT Problem Answer")
 parser.add_argument("--course-name-filter", action="store", help="Filter Course Name", default=None)
 parser.add_argument("--lesson-name-filter", action="store", help="Filter Lesson Name", default=None)
 
 args = parser.parse_args()
 
-if args.help:
+args.__setattr__('video', not args.no_video)
+args.__setattr__('ppt', not args.no_ppt)
+args.__setattr__('ppt_to_pdf', not args.no_convert_ppt_to_pdf)
+args.__setattr__('ppt_problem_answer', not args.no_ppt_answer)
+
+# Check if no arguments are provided or only --help is provided
+if args.help or len(sys.argv) == 1:
     print("""RainClassroom Video Downloader
 
 requirements:
@@ -30,19 +46,89 @@ requirements:
     - websocket-client (qrcode login)
     - qrcode (qrcode login)
     - Pillow (Add answer to problem; Convert PPT to PDF)
-    
-required system binaries:
+
     - aria2c (Download files multi-threaded & resume support)
     - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
 """)
-
     print(parser.format_help())
+
+    if sys.platform == 'win32':
+        print('\nYOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
+        os.system('pause')
 
     exit()
 
+# Check for dependencies
+try:
+    import requests
+except ImportError:
+    print("requests is not installed. Please install it using 'pip install requests'", file=sys.stderr)
+    exit(1)
+
+if args.session_cookie is None:
+    try:
+        import websocket
+    except ImportError:
+        print("websocket-client is not installed. Please install it using 'pip install websocket-client'", file=sys.stderr)
+        exit(1)
+
+    try:
+        import qrcode
+    except ImportError:
+        print("qrcode is not installed. Please install it using 'pip install qrcode'", file=sys.stderr)
+        exit(1)
+
+if args.ppt_to_pdf or args.ppt_problem_answer:
+    try:
+        import PIL
+    except ImportError:
+        print("PIL is not installed. Please install it using 'pip install pillow'", file=sys.stderr)
+        exit(1)
+
+if args.all and args.no_all:
+    print("'-a' and '-na' cannot be used together")
+if args.idm and args.no_idm:
+    print("'-idm' and '-no_idm' cannot be used together")
+
+if args.all:
+    allin_flag = 1
+elif args.no_all:
+    allin_flag = 0
+else:
+    allin_flag = option.ask_for_allin()
+
+if sys.platform != 'win32':
+    print("Inferring --no-idm flag as the system is not Windows")
+    args.no_idm = True
+
+if args.idm:
+    idm_flag = 1
+elif args.no_idm:
+    idm_flag = 0
+else:
+    idm_flag = option.ask_for_idm()
+
+if idm_flag and shutil.which('IDMan.exe') is None:
+    print("IDMan.exe is not found. Please install IDM and add it to PATH, or specify '--no-idm' flag", file=sys.stderr)
+    exit(1)
+
+if idm_flag and sys.platform != 'win32':
+    print("WARNING: Are you sure that you want to use IDM on a non-Windows system?", file=sys.stderr)
+
+args.__setattr__("aria2c_path", "aria2c")
+if shutil.which("aria2c") is None and os.path.exists("aria2c.exe"):
+    args.__setattr__("aria2c_path", os.path.join(os.getcwd(), "aria2c"))
+    print(f"aria2c is not found in PATH, using local binary at {args.aria2c_path}")
+
+if not idm_flag:
+    if shutil.which(args.aria2c_path) is None:
+        print("aria2c is not found. Please install aria2 and add it to PATH, or use IDM instead", file=sys.stderr)
+        exit(1)
+
+    print("IDM is not enabled, aria2c will be used for downloading")
+
 import requests
 import json
-import tempfile
 
 # --- --- --- Section Init --- --- --- #
 # Login to RainClassroom
@@ -56,9 +142,6 @@ CACHE_FOLDER = "cache"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(CACHE_FOLDER, exist_ok=True)
 
-pool = ThreadPool(4)
-interrupted = False
-
 # --- --- --- Section Load Session --- --- --- #
 
 if args.session_cookie is not None:
@@ -68,6 +151,7 @@ if args.session_cookie is not None:
 else:
     import websocket
     import qrcode
+
 
     def on_message(ws, message):
         global userinfo
@@ -91,6 +175,7 @@ else:
     def on_open(ws):
         ws.send(data=json.dumps({"op": "requestlogin", "role": "web", "version": 1.4, "type": "qrcode", "from": "web"}))
 
+
     # websocket数据交互
     ws = websocket.WebSocketApp(f"wss://{YKT_HOST}/wsapp/",
                                 on_message=on_message,
@@ -104,9 +189,8 @@ else:
                             data=json.dumps({'UserID': userinfo['UserID'], 'Auth': userinfo['Auth']}))
 
     # Store session
-    with open(f"{DOWNLOAD_FOLDER}/session.txt", "w") as f:
-        f.write(rainclassroom_sess.cookies['sessionid'])
-
+    with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
+        f.write(rainclassroom_sess.cookies['sessionid'] + "\n")
 
 # --- --- --- Section Get Course List --- --- --- #
 
@@ -127,44 +211,20 @@ rainclassroom_sess.cookies['xtbz'] = 'ykt'
 
 
 # --- --- --- Section Get Lesson List --- --- --- #
-# {
-#     "university_name": "",
-#     "term": 202401,
-#     "university_logo_pic": "",
-#     "name": "NAME",
-#     "type_count": [],
-#     "students_count": 7,
-#     "color_system": 3,
-#     "course": {
-#         "update_time": "",
-#         "name": "",
-#         "admin_id": 0,
-#         "university_id": 0,
-#         "type": 0,
-#         "id": 0
-#     },
-#     "teacher": {
-#         "user_id": 0,
-#         "name": "",
-#         "avatar": ""
-#     },
-#     "create_time": "",
-#     "university_id": 0,
-#     "time": "",
-#     "course_id": 0,
-#     "university_logo": "0",
-#     "university_mini_logo": "0",
-#     "id": 0,
-#     "is_pro": true,
-#     "color_code": 0
-# }
 
 
-def get_lesson_list(course: dict, TEMP_FOLDER: str, name_prefix: str = ""):
+def get_lesson_list(course: dict, name_prefix: str = ""):
     lesson_data = rainclassroom_sess.get(
-        f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=14&page=0&offset=500&sort=-1").json()
+        f"https://{YKT_HOST}/v2/api/web/logs/learn/{course['classroom_id']}?actype=-1&page=0&offset=500&sort=-1").json()
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
+    folder_name = option.windows_filesame_sanitizer(folder_name)
+
+    if idm_flag:
+        folder_name = folder_name.replace('/', '\\')
+        folder_name = re.sub(r'[“”]', '_', folder_name)
+
+    print('folder name would be:',folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -175,432 +235,474 @@ def get_lesson_list(course: dict, TEMP_FOLDER: str, name_prefix: str = ""):
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
-    name_prefix += folder_name + "/"
+
+
+    name_prefix += folder_name.rstrip() + "/"
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
 
     if args.lesson_name_filter is not None:
-        lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if args.lesson_name_filter in l['title']]
+        lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
+                                             args.lesson_name_filter in l['title']]
 
     length = len(lesson_data['data']['activities'])
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if interrupted:
-                return
+            if not lesson['type'] in [2, 14, 15, 17]:
+                continue
+
+            lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                download_lesson_video(lesson, TEMP_FOLDER, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+                if lesson['type'] == 2:
+                    print('Script type detected!')
+                    download_lesson_video_type2(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 14:
+                    print('Normal type detected!')
+                    download_lesson_video(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 15:
+                    print('MOOCv2 type detected!')
+                    download_lesson_video_type15(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 17:
+                    print('MOOCv1 type detected!')
+                    download_lesson_video_type17(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
+
+        print('sbykt may not prepare cold data in one run, rescanning for missing ones')
+
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            if not lesson['type'] in [14, 15, 17]:
+                continue
+
+            lesson['classroom_id'] = course['classroom_id']
+
+            # Lesson
+            try:
+                if lesson['type'] == 14:
+                    print('Normal type detected!')
+                    download_lesson_video(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 15:
+                    print('MOOCv2 type detected!')
+                    download_lesson_video_type15(lesson, name_prefix + str(length - index))
+                elif lesson['type'] == 17:
+                    print('MOOCv1 type detected!')
+                    download_lesson_video_type17(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
     if args.ppt:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if interrupted:
-                return
+            if lesson['type'] in (15, 17):
+                print("mooc type has no ppts!")
+                continue
+            lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                download_lesson_ppt(lesson, TEMP_FOLDER, name_prefix + str(length - index))
-            except Exception as e:
-                print(e)
+                download_lesson_ppt(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
-# --- --- --- Section Popen --- --- --- #
+        print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            if lesson['type'] in (15, 17):
+                print("mooc type has no ppts!")
+                continue
+            lesson['classroom_id'] = course['classroom_id']
 
-def popen(cmd: str, interrupt, fail_msg: str):
-    print("Start:", cmd)
-    pcs = subprocess.Popen(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
+            # Lesson
+            try:
+                download_lesson_ppt(lesson, name_prefix + str(length - index))
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
 
-    while pcs.poll() is None:
-        if interrupted:
-            interrupt(pcs)
-
-            if pcs.poll() is None:
-                pcs.send_signal(signal.SIGTERM)
-                time.sleep(0.5)
-                if pcs.poll() is None:
-                    pcs.send_signal(signal.SIGKILL)
-
-            raise KeyboardInterrupt()
-
-        time.sleep(0.5)
-
-    print("End:", cmd)
-
-    if pcs.wait() != 0:
-        raise Exception(fail_msg)
-
-
-def aria2c_interrupt(pcs):
-    pcs.send_signal(signal.SIGINT)
-
-    while pcs.poll() is None:
-        time.sleep(0.5)
 
 # --- --- --- Section Download Lesson Video --- --- --- #
-# {
-#      "type": 14,
-#      "id": 7153416,
-#      "courseware_id": "909642544544463488",
-#      "title": "R8-三相-周期非正弦",
-#      "create_time": 1686274642000,
-#      "attend_status": true,
-#      "is_finished": true
-# }
+
+from video_processing import download_segments_in_parallel, concatenate_segments
 
 
-def download_lesson_video(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
+def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/replay?lesson_id={lesson['courseware_id']}").json()
-    name_prefix += "-" + lesson['title']
+
+    name_prefix += "-" + lesson['title'].rstrip()
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+
+    if idm_flag:
+        name_prefix = re.sub(r'[“”]', '_', name_prefix)
 
     if 'live' not in lesson_video_data['data']:
-        print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
-        return
+        print(f"v3 protocol detection failed, falling back to v1")
+
+        fallback_flag = 1
+
+        lesson_video_data = rainclassroom_sess.get(
+            f"https://{YKT_HOST}/v/lesson/get_lesson_replay_timeline/?lesson_id={lesson['courseware_id']}").json()
+
+        if 'live_timeline' not in lesson_video_data['data'] or len(lesson_video_data['data']['live_timeline']) == 0:
+            print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
+            return
+    else:
+        fallback_flag = 0
+
+        if len(lesson_video_data['data']['live']) == 0:
+            print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
+            return
 
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4"):
         print(f"Skipping {name_prefix} - Video already present")
-        time.sleep(0.5)
+        time.sleep(0.25)
         return
 
     has_error = False
 
-    for order, segment in enumerate(lesson_video_data['data']['live']):
-        if interrupted:
-            return
+    # Download segments in parallel
+    try:
+        download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix)
+    except Exception:
+        print(traceback.format_exc())
+        print(f"Failed to download {name_prefix}", file=sys.stderr)
+        has_error = True
 
-        # Segment
-        try:
-            download_segment(segment['url'], order, name_prefix)
-        except Exception as e:
-            print(e)
-            print(f"Failed to download {name_prefix} - {segment['order']}", file=sys.stderr)
-            has_error = True
-
-    if not has_error and len(lesson_video_data['data']['live']) > 0:
-        print(f"Concatenating {name_prefix}")
-
-        ffmpeg_input_file = f"{TEMP_FOLDER}/concat.txt"
-
-        # Get absolute path of the video files
-        cache_absolute = os.path.abspath(f"{CACHE_FOLDER}")
-
-        with open(ffmpeg_input_file, "w") as f:
-            f.write("\n".join(
-                [f"file '{cache_absolute}/{name_prefix}-{i}.mp4'" for i in range(len(lesson_video_data['data']['live']))]
-            ))
-
-        cmd = f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda -i {ffmpeg_input_file} -c:v hevc_nvenc -b:v 200k -maxrate 400k -bufsize 3200k -r 8 -rc-lookahead 1024 -c:a aac -rematrix_maxval 1.0 -ac 1 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n -hide_banner -loglevel warning -stats"
-
-        def ffmpeg_interrupt(pcs):
-            # Interrupt and kill ffmpeg, delete the incomplete file
-            pcs.send_signal(signal.SIGINT)
-            time.sleep(0.5)
-            pcs.send_signal(signal.SIGKILL)
-            time.sleep(0.3)
-            os.remove(f"{DOWNLOAD_FOLDER}/{name_prefix}.mp4")
-
-        popen(cmd, ffmpeg_interrupt, f"Failed to concatenate {name_prefix}")
+    # Start concatenation if downloads were successful
+    if not has_error:
+        time.sleep(1)
+        if 'live' in lesson_video_data['data'] and len(lesson_video_data['data']['live']) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
+        elif 'live_timeline' in lesson_video_data['data'] and len(lesson_video_data['data']['live_timeline']) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix,
+                                 len(lesson_video_data['data']['live_timeline']))
+        else:
+            print('concatenate cannot start due to previous failure')
+    else:
+        print('concatenate cannot start due to previous failure')
 
     if has_error:
         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
             f.write(f"{name_prefix}\n")
 
 
-# --- --- --- Section Download Segment --- --- --- #
-# {
-#     "id": "743834725938342272",
-#     "code": "kszt_DdQU9sOod7o",
-#     "type": 2,
-#     "source": "th",
-#     "url": "https://kszt-playback.xuetangx.com/gifshow-xuetangx/73466bdb387702307504996781/f0.mp4?auth_key=1729778852-4128559473511008914-0-e0c959d1504f92ef5a5d45000f46330d",
-#     "start": 1666508813000,
-#     "end": 1666510612000,
-#     "duration": 1799000,
-#     "hiddenStatus": 0,
-#     "order": 0,
-#     "replayOssStatus": 0,
-#     "recordFileId": "",
-#     "recordType": "",
-#     "subtitlePath": ""
-# }
+def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
+    mooc_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/c27/online_courseware/xty/kls/pub_news/{lesson['courseware_id']}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
+
+    for chapter in mooc_data['data']['content_info']:
+        chapter_name = chapter['name']
+
+        for orphan in chapter['leaf_list']:
+            orphan_title = orphan['title']
+            orphan_id = orphan['id']
+            has_error = False
+
+            name_prefix_orphan = name_prefix + chapter_name + " - " + orphan_title
+            name_prefix_orphan = option.windows_filesame_sanitizer(name_prefix_orphan)
+
+            if idm_flag:
+                name_prefix_orphan = re.sub(r'[“”]', '_', name_prefix_orphan)
+
+            mooc_orphan_data = rainclassroom_sess.get(
+                f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(orphan_id)}/",
+                headers={
+                    "Xtbz": "ykt",
+                    "Classroom-Id": str(lesson['classroom_id'])
+                }
+            ).json()
+
+            if 'data' not in mooc_orphan_data or 'content_info' not in mooc_orphan_data['data']:
+                print('no media detected, skipping!')
+                continue
+
+            mooc_orphan_media_id = mooc_orphan_data['data']['content_info']['media']['ccid']
+            mooc_orphan_media_data = rainclassroom_sess.get(
+                f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_orphan_media_id}&provider=cc&is_single=0&format=json"
+            ).json()
+
+            quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
+            quality_keys.sort(key=lambda x: x[0], reverse=True)
+            download_url_list = mooc_orphan_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+            # print(download_url_list)
+
+            # Download segments in parallel
+            try:
+                download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_orphan)
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download {name_prefix}", file=sys.stderr)
+                has_error = True
+
+            # Start concatenation if downloads were successful
+            if not has_error:
+                time.sleep(0.25)
+                if 'playurl' in mooc_orphan_media_data['data'] and len(download_url_list) > 0:
+                    print(f"Concatenating {name_prefix}")
+                    concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_orphan, len(download_url_list))
+                else:
+                    print('concatenate cannot start due to previous failure')
+            else:
+                print('concatenate cannot start due to previous failure')
+
+            if has_error:
+                with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                    f.write(f"{name_prefix}\n")
+
+        for section in chapter['section_list']:
+            section_name = section['name']
+
+            for lesson_d in section['leaf_list']:
+                lesson_name = lesson_d['title']
+                lesson_id = lesson_d['id']
+                has_error = False
+
+                name_prefix_lesson = name_prefix + chapter_name + " - " + section_name + " - " + lesson_name
+                name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+
+                if idm_flag:
+                    name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
+
+                mooc_lesson_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(lesson_id)}/",
+                    headers={
+                        "Xtbz": "ykt",
+                        "Classroom-Id": str(lesson['classroom_id'])
+                    }
+                ).json()
+
+                if 'data' not in mooc_lesson_data or 'content_info' not in mooc_lesson_data['data']:
+                    print('no media detected, skipping!')
+                    continue
+
+                mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
+
+                mooc_media_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
+                ).json()
+
+                quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+                quality_keys.sort(key=lambda x: x[0], reverse=True)
+                download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+                # print(download_url_list)
+
+                # Download segments in parallel
+                try:
+                    download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_lesson)
+                except Exception:
+                    print(traceback.format_exc())
+                    print(f"Failed to download {name_prefix}", file=sys.stderr)
+                    has_error = True
+
+                # Start concatenation if downloads were successful
+                if not has_error:
+                    time.sleep(1)
+                    if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
+                        print(f"Concatenating {name_prefix}")
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+                    else:
+                        print('concatenate cannot start due to previous failure')
+                else:
+                    print('concatenate cannot start due to previous failure')
+
+                if has_error:
+                    with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                        f.write(f"{name_prefix}\n")
 
 
-def download_segment(url: str, order: int, name_prefix: str = ""):
-    print(f"Downloading {name_prefix} - {order}")
-    cmd = f"aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' -x 4 -s 2 '{url}' -c --log-level warn"
+def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
+    mooc_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/c27/online_courseware/xty/kls/pub_news/{lesson['courseware_id']}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
 
-    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}-{order}")
+    if 'name' not in mooc_data['data']['content_info'] or 'content_info' not in mooc_data['data']:
+        print('no media detected, skipping!')
+        return
 
-# --- --- --- Section Download Lesson PPT --- --- --- #
-# {
-#     "code": 0,
-#     "msg": "OK",
-#     "data": {
-#         "lesson": {
-#             "id": "1267751345493205504",
-#             "title": "",
-#             "startTime": 1728964537223,
-#             "endTime": 1728965834350,
-#             "teacherIdentityId": "15753469",
-#             "classroom": {
-#                 "id": "3134428",
-#                 "name": "",
-#                 "pro": true
-#             },
-#             "course": {
-#                 "id": "1360043",
-#                 "name": "计算机网络原理"
-#             }
-#         },
-#         "fileSharing": {
-#             "count": 0,
-#             "cover": null
-#         },
-#         "teacher": {
-#             "identityId": "15753469",
-#             "avatar": "0",
-#             "name": "徐明伟",
-#             "number": "1998990267"
-#         },
-#         "replayType": 0,
-#         "replayOssStatus": 0,
-#         "presentations": [
-#             {
-#                 "id": "1267751453966295552",
-#                 "title": "",
-#                 "cover": "",
-#                 "slidesCount": 21,
-#                 "totalSlidesCount": 59,
-#                 "doubtCount": 0,
-#                 "collectCount": 0,
-#                 "conf": ""
-#             }
-#         ],
-#         "user": {
-#             "identityId": "",
-#             "avatar": "",
-#             "name": "",
-#             "number": ""
-#         },
-#         "activityId": "7970721",
-#         "memoContent": "",
-#         "liveViewed": false,
-#         "doubtSlides": [],
-#         "collectSlides": [],
-#         "checkIn": {
-#             "lessonId": "",
-#             "identityId": "21640720",
-#             "score": 1000,
-#             "source": 5,
-#             "time": 1728964549329,
-#             "valid": 1,
-#             "problemScore": 1000,
-#             "quizScore": -1,
-#             "duration": 0,
-#             "addScore": null,
-#             "redEnvelope": 0,
-#             "correctCount": 10,
-#             "incorrectCount": 4,
-#             "unMarkCount": 0
-#         },
-#         "quizzes": [],
-#         "danmuList": [],
-#         "tougaoList": [],
-#         "toastType": 0,
-#         "problems": [
-#             {
-#                 "problemId": "1267751453974684162",
-#                 "problemType": 1,
-#                 "problemScore": 100,
-#                 "index": 3,
-#                 "cover": "",
-#                 "presentationId": "1267751453966295552",
-#                 "answer": [
-#                     "D"
-#                 ],
-#                 "ans_type": "",
-#                 "comment": {},
-#                 "correctAnswer": [
-#                     "D"
-#                 ],
-#                 "score": 100,
-#                 "submitTime": 1728964586371,
-#                 "scoreTime": 0,
-#                 "correct": true,
-#                 "blankStatus": [],
-#                 "anonymous": null,
-#                 "remarkDetail": {},
-#                 "teamInfo": null
-#             }
-#         ]
-#     }
-# }
+    only_lesson_name = mooc_data['data']['content_info']['name']
+    only_lesson_id = mooc_data['data']['content_info']['id']
+
+    has_error = False
+
+    name_prefix_lesson = name_prefix + only_lesson_name
+    name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+
+    if idm_flag:
+        name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
+
+    mooc_lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/mooc-api/v1/lms/learn/leaf_info/{str(lesson['classroom_id'])}/{str(only_lesson_id)}/",
+        headers={
+            "Xtbz": "ykt",
+            "Classroom-Id": str(lesson['classroom_id'])
+        }
+    ).json()
+
+    if 'data' not in mooc_lesson_data or 'content_info' not in mooc_lesson_data['data']:
+        print('no media detected, skipping!')
+        return
+
+    mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
+
+    mooc_media_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
+    ).json()
+
+    quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+    quality_keys.sort(key=lambda x: x[0], reverse=True)
+    download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
+    # print(download_url_list)
+
+    # Download segments in parallel
+    try:
+        download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_lesson)
+    except Exception:
+        print(traceback.format_exc())
+        print(f"Failed to download {name_prefix}", file=sys.stderr)
+        has_error = True
+
+    # Start concatenation if downloads were successful
+    if not has_error:
+        time.sleep(1)
+        if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
+            print(f"Concatenating {name_prefix}")
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+        else:
+            print('concatenate cannot start due to previous failure')
+    else:
+        print('concatenate cannot start due to previous failure')
+
+    if has_error:
+        with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+            f.write(f"{name_prefix}\n")
 
 
-def download_lesson_ppt(lesson: dict, TEMP_FOLDER, name_prefix: str = ""):
-    lesson_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
-    name_prefix += "-" + lesson['title']
+def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
+    # "id": 6036907, "courseware_id": "1055476"
+    # https://pro.yuketang.cn/v2/api/web/cards/detlist/1055476?classroom_id=3058049
+    
+    lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
+    name_prefix += "-" + lesson_data['data']['Title'].strip()
+    
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    
+    for slide in lesson_data['data']['Slides']:
+        slide_id = slide['PageIndex']
+        for shape in slide['Shapes']:
+            if shape['ShapeType'] == 1 and 'file_title' in shape:
+                file_title = shape['file_title']
+                quality_keys = list(map(lambda x: (int(x[7:]), x), shape['playurls'].keys()))
+                quality_keys.sort(key=lambda x: x[0], reverse=True)
+                download_url_list = shape['playurls'][quality_keys[0][1]]
+                
+                name_prefix_shape = name_prefix + f" - {slide_id} - {file_title}"
+                name_prefix_shape = option.windows_filesame_sanitizer(name_prefix_shape)
+                
+                if idm_flag:
+                    name_prefix_shape = re.sub(r'[“”]', '_', name_prefix_shape)
+
+                # Download segments in parallel
+                try:
+                    download_segments_in_parallel(idm_flag, 2, CACHE_FOLDER, download_url_list, name_prefix_shape)
+                    has_error = False
+                except Exception:
+                    print(traceback.format_exc())
+                    print(f"Failed to download {name_prefix}", file=sys.stderr)
+                    has_error = True
+
+                # Start concatenation if downloads were successful
+                if not has_error:
+                    time.sleep(1)
+                    if 'playurl' in shape and len(download_url_list) > 0:
+                        print(f"Concatenating {name_prefix}")
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_shape, len(download_url_list))
+                    else:
+                        print('concatenate cannot start due to previous failure')
+                else:
+                    print('concatenate cannot start due to previous failure')
+
+                if has_error:
+                    with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+                        f.write(f"{name_prefix}\n")
+
+
+from ppt_processing import download_ppt
+
+
+def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
+    lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
+    name_prefix += "-" + lesson['title'].rstrip()
+
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)
 
     if 'presentations' not in lesson_data['data']:
-        print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)
-        return
+        print(f"v3 protocol detection failed, falling back to v1")
 
-    for index, ppt in enumerate(lesson_data['data']['presentations']):
-        if interrupted:
+        ppt_info = rainclassroom_sess.get(
+            f"https://{YKT_HOST}/v2/api/web/lessonafter/{lesson['courseware_id']}/presentation?classroom_id={lesson['classroom_id']}").json()
+        if 'id' not in ppt_info['data'][0]:
+            print(f"Skipping {name_prefix} - No PPT", file=sys.stderr)
             return
 
-        # PPT
-        try:
-            download_ppt(lesson["courseware_id"], TEMP_FOLDER, ppt['id'], name_prefix + f"-{index}")
-        except Exception as e:
-            print(e)
-            print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
+        for index, ppt in enumerate(ppt_info['data']):
+            # PPT
+            try:
+                ppt_raw_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/v2/api/web/lessonafter/presentation/{ppt['id']}?classroom_id={lesson['classroom_id']}").json()
+                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
+                             ppt_raw_data, name_prefix + f"-{index}")
 
-# --- --- --- Section Download PPT --- --- --- #
-# {
-#     "code": 0,
-#     "msg": "OK",
-#     "data": {
-#         "presentation": {
-#             "id": "714674183600571776",
-#             "title": "L1_课程介绍",
-#             "cover": "https://qn-st0.yuketang.cn/FudgWS2XoU3bXLxReeSBBhYTWJsX",
-#             "width": 720,
-#             "height": 540,
-#             "conf": {
-#                 "show_presentation": "all",
-#                 "slides": [
-#                     "714674183617348992"
-#                 ],
-#                 "hide_slides": []
-#             }
-#         },
-#         "slides": [
-#             {
-#                 "id": "714674183617348992",
-#                 "index": 1,
-#                 "doubtCount": 0,
-#                 "collectCount": 0,
-#                 "cover": "https://qn-st0.yuketang.cn/FudgWS2XoU3bXLxReeSBBhYTWJsX",
-#                 "problem": null,
-#                 "result": null
-#             }
-#         ]
-#     }
-# }
+            except Exception as e:
+                print(traceback.format_exc())
+                print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
+    else:
+        for index, ppt in enumerate(lesson_data['data']['presentations']):
+            # PPT
+            try:
+                ppt_raw_data = rainclassroom_sess.get(
+                    f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson['courseware_id']}").json()
+                download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
+                             ppt_raw_data, name_prefix + f"-{index}")
 
-def download_ppt(lesson_id: str, TEMP_FOLDER, ppt_id: str, name_prefix: str = ""):
-    print(f"Downloading {name_prefix}")
-    ppt_raw_data = rainclassroom_sess.get(f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt_id}&lesson_id={lesson_id}").json()
-    name_prefix += "-" + ppt_raw_data['data']['presentation']['title']
-
-    # If PDF is present, skip
-    if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):
-        print(f"Skipping {name_prefix} - PDF already present")
-        time.sleep(0.5)
-        return
-
-    os.makedirs(f"{DOWNLOAD_FOLDER}/{name_prefix}", exist_ok=True)
-
-    images = []
-
-    aria2_input_file = f"{TEMP_FOLDER}/ppt_download.txt"
-
-    with open(aria2_input_file, "w") as f:
-        for slide in ppt_raw_data['data']['slides']:
-            if not slide.get('cover'):
-                continue
-
-            f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
-            images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
-
-        # if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg"):
-        #     print(f"Skipping {name_prefix} - {slide['index']}")
-        #     continue
-        #
-        # with open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg", "wb") as f:
-        #     f.write(requests.get(slide['cover']).content)
-
-    cmd = f"aria2c -i {aria2_input_file} -x 16 -j 16 -c --log-level warn"
-
-    popen(cmd, aria2c_interrupt, f"Failed to download {name_prefix}")
-
-    from PIL import Image
-
-    if args.ppt_problem_answer:
-        from PIL import ImageDraw, ImageFont
-
-        for problem in ppt_raw_data['data']['slides']:
-            if problem['problem'] is None:
-                continue
-
-            if not problem.get('cover'):
-                continue
-
-            answer = "Answer: " + "; ".join(problem['problem']['content']['answer'])
-
-            image = Image.open(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg").convert("RGB")
-
-            draw = ImageDraw.Draw(image)
-
-            # Load the font
-            font = ImageFont.load_default(size=40)
-            text_bbox = draw.textbbox(xy=(20, 20), text=answer, font=font)
-
-            # Add semi-transparent black rectangle
-            draw.rectangle([text_bbox[0] - 10, text_bbox[1] - 10, text_bbox[2] + 10, text_bbox[3] + 10], fill="#bbb")
-
-            # Draw the text on top (white)
-            draw.text((text_bbox[0], text_bbox[1]), answer, anchor="lt", font=font, fill="#333")
-
-            image.save(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg")
-
-            # Replace the image in the list
-            images[images.index(f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}.jpg")] = f"{DOWNLOAD_FOLDER}/{name_prefix}/{problem['index']}-ans.jpg"
-
-            print(f"Added Answer to {name_prefix} - {problem['index']}")
-
-    if not args.ppt_to_pdf:
-        return
-
-    print(f"Converting {name_prefix}")
-
-    images = [Image.open(i) for i in images]
-    images[0].save(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf", "PDF", resolution=100.0, save_all=True, append_images=images[1:])
-
-    print(f"Converted {name_prefix}")
+            except Exception as e:
+                print(traceback.format_exc())
+                print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
 
 # --- --- --- Section Main --- --- --- #
 
-
-def thread_worker(course):
-    # Make a thread-specific cache folder
-    TEMP_FOLDER = tempfile.mkdtemp()
-    print(f"Temp Folder: {TEMP_FOLDER}")
-
-    try:
-        get_lesson_list(course, TEMP_FOLDER)
-    except Exception as e:
-        print(e)
-        print(f"Failed to parse {course['name']}", file=sys.stderr)
-
-    # Remove temp folder
-    print("Removing Temp Folder")
-    os.system(f"rm -rf {TEMP_FOLDER}")
-
+print('successfully parsed account info!')
 
 for course in courses:
-    pool.apply_async(thread_worker, (course,))
-try:
-    pool.close()
-    pool.join()
-except KeyboardInterrupt:
-    print("Interrupted")
-    interrupted = True
-    pool.terminate()
-    pool.join()
+    skip_flag = 0
+    try:
+        print(course)
+        if not allin_flag:
+            skip_flag = option.ask_for_input()
+            if skip_flag:
+                continue
+            else:
+                get_lesson_list(course)
+        else:
+            get_lesson_list(course)
+    except Exception as e:
+        print(traceback.format_exc())
+        print(f"Failed to parse {course['name']}", file=sys.stderr)
