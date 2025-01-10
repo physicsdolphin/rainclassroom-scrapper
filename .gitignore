@@ -1,6 +1,13 @@
 .idea/
 /data/
 /cache/
+.vscode/
 *.log
 __pycache__
 ffmpeg.exe
+*.bat
+HLSDownloader.exe
+m3u8dl-windows-amd64.exe
+manual command.txt
+pdf_converter.py
+vsd.exe
