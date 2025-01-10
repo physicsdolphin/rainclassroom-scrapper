@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import subprocess
 import sys
 import argparse
 import time
@@ -19,11 +18,13 @@ parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=Fa
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
 idm_sel_group = parser.add_mutually_exclusive_group()
 idm_sel_group.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
-idm_sel_group.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system is not Windows")
+idm_sel_group.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system "
+                                                                        "is not Windows")
 content_sel_group = parser.add_mutually_exclusive_group(required=True)
 content_sel_group.add_argument("-da", "--download-all", action="store_true", help="Download all content without asking")
 content_sel_group.add_argument("-dq", "--download-ask", action="store_true", help="Ask before downloading each course")
-content_sel_group.add_argument("-ds", "--download-select", action="store_true", help="Select courses to download before downloading")
+content_sel_group.add_argument("-ds", "--download-select", action="store_true", help="Select courses to download "
+                                                                                     "before downloading")
 parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Download Video")
 parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
 parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
@@ -33,6 +34,8 @@ parser.add_argument("-cnf", "--course-name-filter", action="append", help="Filte
 parser.add_argument("-lnf", "--lesson-name-filter", action="append", help="Filter Lesson Name", default=None)
 
 original_format_help = parser.format_help
+
+
 def format_help():
     return original_format_help() + """
 requirements:
@@ -46,14 +49,18 @@ requirements:
     - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
 """
 
+
 parser.format_help = format_help
 
 original_print_help = parser.print_help
+
+
 def print_help(file=None):
     original_print_help(file)
     if sys.platform == 'win32':
         print('\nYOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
         os.system('pause')
+
 
 parser.print_help = print_help
 
@@ -75,7 +82,8 @@ if args.session_cookie is None:
     try:
         import websocket
     except ImportError:
-        print("websocket-client is not installed. Please install it using 'pip install websocket-client'", file=sys.stderr)
+        print("websocket-client is not installed. Please install it using 'pip install websocket-client'",
+              file=sys.stderr)
         exit(1)
 
     try:
@@ -147,7 +155,9 @@ YKT_HOST = args.ykt_host
 DOWNLOAD_FOLDER = "data"
 CACHE_FOLDER = "cache"
 
-rainclassroom_sess.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+rainclassroom_sess.headers[
+    "User-Agent"] = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 "
+                     "Safari/537.36 Edg/131.0.0.0")
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(CACHE_FOLDER, exist_ok=True)
@@ -202,21 +212,23 @@ else:
 with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
     f.write("\n" + rainclassroom_sess.cookies['sessionid'] + "\n")
 
+
 # --- --- --- Generic Error Handling --- --- --- #
 
 class APIError(Exception):
     pass
 
+
 def check_response(r: dict):
     if 'success' in r:
         e = not r['success']
-    
+
     elif 'errcode' in r:
         e = r['errcode'] != 0
 
     elif 'code' in r:
         e = r['code'] != 0
-    
+
     else:
         print(json.dumps(r))
         print("Unknown API return status")
@@ -254,7 +266,7 @@ if args.download_select:
             print(f"{i + 1}. {course['course']['name']}({course['name']}) - {course['teacher']['name']}")
 
         selection = input("Select courses to download (e.g. `1, 2, 3-5, 10`): ")
-        
+
         try:
             indexes = []
             for part in selection.split(","):
@@ -290,7 +302,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         folder_name = folder_name.replace('/', '\\')
         folder_name = re.sub(r'[“”]', '_', folder_name)
 
-    print('folder name would be:',folder_name)
+    print('folder name would be:', folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -301,7 +313,6 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
-
 
     name_prefix += folder_name.rstrip() + "/"
     name_prefix = option.windows_filesame_sanitizer(name_prefix)
@@ -316,7 +327,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         if lesson['type'] == 2:
             print('Script type detected!')
             download_lesson_video_type2(lesson, name_prefix + str(length - index))
-        elif lesson['type'] == 14 or lesson['type'] == 3:
+        elif lesson['type'] in [14, 3]:
             print('Normal type detected!')
             download_lesson_video(lesson, name_prefix + str(length - index))
         elif lesson['type'] == 15:
@@ -361,7 +372,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                         still_failed_lessons.append((index, lesson))
 
                 failed_lessons = still_failed_lessons
-            
+
             if len(failed_lessons) > 0:
                 with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
                     for index, lesson in failed_lessons:
@@ -387,12 +398,12 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                     print('MOOC type has no PPT')
                 elif lesson['type'] in [6, 9]:
                     print('Announcement type has no PPT')
-                    
+
             except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
                 failed_lessons.append((index, lesson))
-        
+
         if len(failed_lessons) > 0:
             print('Retrying failed lessons')
 
@@ -411,7 +422,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                         still_failed_lessons.append((index, lesson))
 
                 failed_lessons = still_failed_lessons
-            
+
             if len(failed_lessons) > 0:
                 with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
                     for index, lesson in failed_lessons:
@@ -420,9 +431,11 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
                         print(f"PPT for {name_prefix} - {lesson['title']} failed to download", file=sys.stderr)
 
+
 # --- --- --- Section Download Lesson Video --- --- --- #
 
 from video_processing import download_segments_in_parallel, concatenate_segments
+
 
 def download_lesson_video(lesson: dict, name_prefix: str = ""):
     lesson_video_data = rainclassroom_sess.get(
@@ -526,11 +539,13 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
 
             mooc_orphan_media_id = mooc_orphan_data['data']['content_info']['media']['ccid']
             mooc_orphan_media_data = rainclassroom_sess.get(
-                f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_orphan_media_id}&provider=cc&is_single=0&format=json"
+                f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_orphan_media_id}&provider=cc"
+                f"&is_single=0&format=json"
             ).json()
             check_response(mooc_orphan_media_data)
 
-            quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
+            quality_keys = list(
+                map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
             quality_keys.sort(key=lambda x: x[0], reverse=True)
             download_url_list = mooc_orphan_media_data['data']['playurl']['sources'][quality_keys[0][1]]
             # print(download_url_list)
@@ -588,11 +603,13 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                 mooc_media_id = mooc_lesson_data['data']['content_info']['media']['ccid']
 
                 mooc_media_data = rainclassroom_sess.get(
-                    f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
+                    f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0"
+                    f"&format=json"
                 ).json()
                 check_response(mooc_media_data)
 
-                quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+                quality_keys = list(
+                    map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
                 quality_keys.sort(key=lambda x: x[0], reverse=True)
                 download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
                 # print(download_url_list)
@@ -698,14 +715,14 @@ def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
 def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
     # "id": 6036907, "courseware_id": "1055476"
     # https://pro.yuketang.cn/v2/api/web/cards/detlist/1055476?classroom_id=3058049
-    
+
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
     check_response(lesson_data)
     name_prefix += "-" + lesson_data['data']['Title'].strip()
-    
+
     name_prefix = option.windows_filesame_sanitizer(name_prefix)
-    
+
     for slide in lesson_data['data']['Slides']:
         slide_id = slide['PageIndex']
         for shape in slide['Shapes']:
@@ -714,10 +731,10 @@ def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
                 quality_keys = list(map(lambda x: (int(x[7:]), x), shape['playurls'].keys()))
                 quality_keys.sort(key=lambda x: x[0], reverse=True)
                 download_url_list = shape['playurls'][quality_keys[0][1]]
-                
+
                 name_prefix_shape = name_prefix + f" - {slide_id} - {file_title}"
                 name_prefix_shape = option.windows_filesame_sanitizer(name_prefix_shape)
-                
+
                 if idm_flag:
                     name_prefix_shape = re.sub(r'[“”]', '_', name_prefix_shape)
 
@@ -776,7 +793,8 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
                 ppt_raw_data = rainclassroom_sess.get(
                     f"https://{YKT_HOST}/v2/api/web/lessonafter/presentation/{ppt['id']}?classroom_id={lesson['classroom_id']}").json()
                 check_response(ppt_raw_data)
-                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
+                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                             args.aria2c_path,
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
@@ -822,10 +840,9 @@ def download_lesson_ppt_type2(lesson: dict, name_prefix: str = ""):
 
     # # Navigate to https://{YKT_HOST}/web/print and print webpage to PDF
     # driver.get(f"https://{YKT_HOST}/web/print")
-    
+
     # # Print to PDF without user's interaction
     # driver.execute_script("window.print();")
-    
 
     chrome_options = Options()
     chrome_options.add_argument('--kiosk-printing')
@@ -856,7 +873,6 @@ def download_lesson_ppt_type2(lesson: dict, name_prefix: str = ""):
     driver.execute_script("window.print();")
     time.sleep(3)
     driver.quit()
-
 
 
 # --- --- --- Section Main --- --- --- #
