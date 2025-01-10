@@ -4,3 +4,10 @@
 *.log
 __pycache__
 ffmpeg.exe
+HLSDownloader.exe
+m3u8dl-windows-amd64.exe
+manual command.txt
+manual-video_proc.bat
+manual_process.bat
+pdf_converter.py
+vsd.exe
