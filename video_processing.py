@@ -257,7 +257,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
     # If the first command fails, try the fallback
     if result.returncode != 0:
-        print(f"First attempt failed. Attempting fallback with software encoding.")
+        print(f"First attempt failed. Attempting fallback with software decoding.")
 
         # Fallback video concatenation command using cuvid acceleration
         video_concatenating_command_fallback = (

@@ -151,7 +151,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         folder_name = folder_name.replace('/', '\\')
         folder_name = re.sub(r'[“”]', '_', folder_name)
 
-    print('folder name would be:',folder_name)
+    print('folder name would be:', folder_name)
 
     # Rename old folder
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{course['name']}"):
@@ -162,7 +162,6 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     os.makedirs(f"{DOWNLOAD_FOLDER}/{folder_name}", exist_ok=True)
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
-
 
     name_prefix += folder_name.rstrip() + "/"
     name_prefix = option.windows_filesame_sanitizer(name_prefix)
@@ -175,7 +174,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
     if args.video:
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if not lesson['type'] in [2, 14, 15, 17]:
+            if not lesson['type'] in [2, 3, 14, 15, 17]:
                 continue
 
             lesson['classroom_id'] = course['classroom_id']
@@ -185,7 +184,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 if lesson['type'] == 2:
                     print('Script type detected!')
                     download_lesson_video_type2(lesson, name_prefix + str(length - index))
-                elif lesson['type'] == 14:
+                elif lesson['type'] in [3, 14]:
                     print('Normal type detected!')
                     download_lesson_video(lesson, name_prefix + str(length - index))
                 elif lesson['type'] == 15:
@@ -201,14 +200,17 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
         print('sbykt may not prepare cold data in one run, rescanning for missing ones')
 
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if not lesson['type'] in [14, 15, 17]:
+            if not lesson['type'] in [2, 3, 14, 15, 17]:
                 continue
 
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                if lesson['type'] == 14:
+                if lesson['type'] == 2:
+                    print('Script type detected!')
+                    download_lesson_video_type2(lesson, name_prefix + str(length - index))
+                elif lesson['type'] in [3, 14]:
                     print('Normal type detected!')
                     download_lesson_video(lesson, name_prefix + str(length - index))
                 elif lesson['type'] == 15:
@@ -359,7 +361,8 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                 f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_orphan_media_id}&provider=cc&is_single=0&format=json"
             ).json()
 
-            quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
+            quality_keys = list(
+                map(lambda x: (int(x[7:]), x), mooc_orphan_media_data['data']['playurl']['sources'].keys()))
             quality_keys.sort(key=lambda x: x[0], reverse=True)
             download_url_list = mooc_orphan_media_data['data']['playurl']['sources'][quality_keys[0][1]]
             # print(download_url_list)
@@ -419,7 +422,8 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                     f"https://{YKT_HOST}/api/open/audiovideo/playurl?video_id={mooc_media_id}&provider=cc&is_single=0&format=json"
                 ).json()
 
-                quality_keys = list(map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
+                quality_keys = list(
+                    map(lambda x: (int(x[7:]), x), mooc_media_data['data']['playurl']['sources'].keys()))
                 quality_keys.sort(key=lambda x: x[0], reverse=True)
                 download_url_list = mooc_media_data['data']['playurl']['sources'][quality_keys[0][1]]
                 # print(download_url_list)
@@ -522,13 +526,13 @@ def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
 def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
     # "id": 6036907, "courseware_id": "1055476"
     # https://pro.yuketang.cn/v2/api/web/cards/detlist/1055476?classroom_id=3058049
-    
+
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
     name_prefix += "-" + lesson_data['data']['Title'].strip()
-    
+
     name_prefix = option.windows_filesame_sanitizer(name_prefix)
-    
+
     for slide in lesson_data['data']['Slides']:
         slide_id = slide['PageIndex']
         for shape in slide['Shapes']:
@@ -537,10 +541,10 @@ def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
                 quality_keys = list(map(lambda x: (int(x[7:]), x), shape['playurls'].keys()))
                 quality_keys.sort(key=lambda x: x[0], reverse=True)
                 download_url_list = shape['playurls'][quality_keys[0][1]]
-                
+
                 name_prefix_shape = name_prefix + f" - {slide_id} - {file_title}"
                 name_prefix_shape = option.windows_filesame_sanitizer(name_prefix_shape)
-                
+
                 if idm_flag:
                     name_prefix_shape = re.sub(r'[“”]', '_', name_prefix_shape)
 
@@ -612,6 +616,8 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             except Exception as e:
                 print(traceback.format_exc())
                 print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
+
+
 
 
 # --- --- --- Section Main --- --- --- #
