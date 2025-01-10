@@ -73,7 +73,7 @@ def download_segment_idm(CACHE_FOLDER, url: str, order: int, name_prefix: str = 
         raise  # Re-raise the exception to propagate it
 
     print(f"Download completed: {downloaded_file}")
-    return downloaded_file
+    return 0
 
 
 def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_prefix: str = "", max_retries: int = 35):
@@ -122,7 +122,7 @@ def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_pre
     else:
         result = subprocess.run(video_download_command, shell=True)
 
-    return result
+    return result.returncode
 
 
 def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix):
