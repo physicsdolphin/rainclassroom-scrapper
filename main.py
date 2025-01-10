@@ -373,14 +373,6 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     if args.ppt:
         failed_lessons = []
         for index, lesson in enumerate(lesson_data['data']['activities']):
-            if lesson['type'] in (15, 17):
-                print("mooc type has no ppts!")
-                continue
-
-            if lesson['type'] == 6:
-                print("Announcement has no ppt!")
-                continue
-
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
@@ -388,9 +380,14 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 if lesson['type'] == 2:
                     print('Script type detected!')
                     download_lesson_ppt_type2(lesson, name_prefix + str(length - index))
-                else:
+                elif lesson['type'] in [14, 3]:
                     print('Normal type detected!')
                     download_lesson_ppt(lesson, name_prefix + str(length - index))
+                elif lesson['type'] in [15, 17]:
+                    print('MOOC type has no PPT')
+                elif lesson['type'] in [6, 9]:
+                    print('Announcement type has no PPT')
+                    
             except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
