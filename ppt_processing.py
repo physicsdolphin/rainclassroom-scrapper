@@ -46,7 +46,7 @@ def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ARIA2
                 f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
                 images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
 
-    ppt_download_command = (f"{ARIA2C_PATH} -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c "
+    ppt_download_command = (f"{ARIA2C_PATH} -i {CACHE_FOLDER}/ppt_download.txt -x 16 -j 16 -c "
                             f"-l aria2c_ppt.log --log-level warn")
 
     if WINDOWS:

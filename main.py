@@ -13,33 +13,27 @@ import shutil
 if sys.platform == 'win32':
     os.system('chcp 65001')
 
-parser = argparse.ArgumentParser(add_help=False)
+parser = argparse.ArgumentParser()
 
-parser.add_argument("-h", "--help", action="store_true", help="Show this help message and exit")
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
-parser.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
-parser.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system is not Windows")
-parser.add_argument("-a", "--all", action="store_true", help="Download all content without asking")
-parser.add_argument("-na", "--no-all", action="store_true", help="Ask before downloading each course")
+idm_sel_group = parser.add_mutually_exclusive_group()
+idm_sel_group.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
+idm_sel_group.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system is not Windows")
+content_sel_group = parser.add_mutually_exclusive_group(required=True)
+content_sel_group.add_argument("-da", "--download-all", action="store_true", help="Download all content without asking")
+content_sel_group.add_argument("-dq", "--download-ask", action="store_true", help="Ask before downloading each course")
+content_sel_group.add_argument("-ds", "--download-select", action="store_true", help="Select courses to download before downloading")
 parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Download Video")
 parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
 parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
 parser.add_argument("-npa", "--no-ppt-answer", action="store_true", help="Don't Store PPT Problem Answer")
-parser.add_argument("--course-name-filter", action="store", help="Filter Course Name", default=None)
-parser.add_argument("--lesson-name-filter", action="store", help="Filter Lesson Name", default=None)
+parser.add_argument("-cnf", "--course-name-filter", action="append", help="Filter Course Name", default=None)
+parser.add_argument("-lnf", "--lesson-name-filter", action="append", help="Filter Lesson Name", default=None)
 
-args = parser.parse_args()
-
-args.__setattr__('video', not args.no_video)
-args.__setattr__('ppt', not args.no_ppt)
-args.__setattr__('ppt_to_pdf', not args.no_convert_ppt_to_pdf)
-args.__setattr__('ppt_problem_answer', not args.no_ppt_answer)
-
-# Check if no arguments are provided or only --help is provided
-if args.help or len(sys.argv) == 1:
-    print("""RainClassroom Video Downloader
-
+original_format_help = parser.format_help
+def format_help():
+    return original_format_help() + """
 requirements:
     - Python >= 3.12
     - requests
@@ -49,14 +43,25 @@ requirements:
 
     - aria2c (Download files multi-threaded & resume support)
     - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
-""")
-    print(parser.format_help())
+"""
 
+parser.format_help = format_help
+
+original_print_help = parser.print_help
+def print_help(file=None):
+    original_print_help(file)
     if sys.platform == 'win32':
         print('\nYOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
         os.system('pause')
 
-    exit()
+parser.print_help = print_help
+
+args = parser.parse_args()
+
+args.__setattr__('video', not args.no_video)
+args.__setattr__('ppt', not args.no_ppt)
+args.__setattr__('ppt_to_pdf', not args.no_convert_ppt_to_pdf)
+args.__setattr__('ppt_problem_answer', not args.no_ppt_answer)
 
 # Check for dependencies
 try:
@@ -85,17 +90,12 @@ if args.ppt_to_pdf or args.ppt_problem_answer:
         print("PIL is not installed. Please install it using 'pip install pillow'", file=sys.stderr)
         exit(1)
 
-if args.all and args.no_all:
-    print("'-a' and '-na' cannot be used together")
-if args.idm and args.no_idm:
-    print("'-idm' and '-no_idm' cannot be used together")
-
-if args.all:
-    allin_flag = 1
-elif args.no_all:
-    allin_flag = 0
-else:
-    allin_flag = option.ask_for_allin()
+if args.download_all:
+    download_type_flag = 1
+elif args.download_ask:
+    download_type_flag = 0
+elif args.download_select:
+    download_type_flag = 2
 
 if sys.platform != 'win32':
     print("Inferring --no-idm flag as the system is not Windows")
@@ -138,6 +138,8 @@ rainclassroom_sess = requests.session()
 YKT_HOST = args.ykt_host
 DOWNLOAD_FOLDER = "data"
 CACHE_FOLDER = "cache"
+
+rainclassroom_sess.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(CACHE_FOLDER, exist_ok=True)
@@ -188,9 +190,9 @@ else:
     rainclassroom_sess.post(f"https://{YKT_HOST}/pc/web_login",
                             data=json.dumps({'UserID': userinfo['UserID'], 'Auth': userinfo['Auth']}))
 
-    # Store session
-    with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
-        f.write(rainclassroom_sess.cookies['sessionid'] + "\n")
+# Store session
+with open(f"{DOWNLOAD_FOLDER}/session.txt", "a", encoding='utf-8') as f:
+    f.write("\n" + rainclassroom_sess.cookies['sessionid'] + "\n")
 
 # --- --- --- Section Get Course List --- --- --- #
 
@@ -205,7 +207,35 @@ for course in hidden_courses['data']['classrooms']:
 courses = shown_courses['data']['list'] + hidden_courses['data']['classrooms']
 
 if args.course_name_filter is not None:
-    courses = [c for c in courses if args.course_name_filter in c['name']]
+    courses = [c for c in courses if any(f in c['name'] for f in args.course_name_filter)]
+
+# Show a list of courses and ask for selection
+if args.download_select:
+    done = False
+
+    while not done:
+        print("Courses:")
+        for i, course in enumerate(courses):
+            print(f"{i + 1}. {course['course']['name']}({course['name']}) - {course['teacher']['name']}")
+
+        selection = input("Select courses to download (e.g. `1, 2, 3-5, 10`): ")
+
+        indexes = []
+        for part in selection.split(","):
+            if "-" in part:
+                start, end = map(int, part.split("-"))
+                indexes.extend(range(start, end + 1))
+            else:
+                indexes.append(int(part))
+        
+        try:
+            selected_courses = [courses[i - 1] for i in indexes]
+            courses = selected_courses
+            download_type_flag = 1
+            done = True
+        except IndexError:
+            print(traceback.format_exc())
+            print("Invalid selection, please try again")
 
 rainclassroom_sess.cookies['xtbz'] = 'ykt'
 
@@ -695,7 +725,7 @@ for course in courses:
     skip_flag = 0
     try:
         print(course)
-        if not allin_flag:
+        if not download_type_flag:
             skip_flag = option.ask_for_input()
             if skip_flag:
                 continue
