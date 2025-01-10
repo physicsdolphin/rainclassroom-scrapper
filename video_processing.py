@@ -12,18 +12,18 @@ ARIA2C_PATH = "aria2c" if shutil.which("aria2c") else os.path.join(os.getcwd(), 
 WINDOWS = sys.platform == 'win32'
 
 
-def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
+def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = "") -> subprocess.CompletedProcess:
     print(f"Downloading {name_prefix} - {order}")
 
     video_download_command = (f"{ARIA2C_PATH} -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
-                              f" -x 16 -s 16 '{url}' -c -l aria2c_video.log --log-level warn")
+                              f" -x 16 -s 16 -k 1M '{url}' --stream-piece-selector random -k 1M -c -l aria2c_video.log --log-level warn")
 
     if WINDOWS:
         result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
     else:
         result = subprocess.run(video_download_command, shell=True)
 
-    return result
+    return result.returncode
 
 
 def download_segment_idm(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
@@ -73,7 +73,7 @@ def download_segment_idm(CACHE_FOLDER, url: str, order: int, name_prefix: str = 
         raise  # Re-raise the exception to propagate it
 
     print(f"Download completed: {downloaded_file}")
-    return downloaded_file
+    return 0
 
 
 def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_prefix: str = "", max_retries: int = 35):
@@ -122,7 +122,7 @@ def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_pre
     else:
         result = subprocess.run(video_download_command, shell=True)
 
-    return result
+    return result.returncode
 
 
 def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_video_data, name_prefix):
@@ -151,8 +151,12 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
             for future in as_completed(future_to_order):
                 order = future_to_order[future]
                 try:
-                    future.result()  # Get the result (will raise exception if there was one)
-                    print(f"Successfully downloaded {name_prefix} - {order}")
+                    result = future.result()  # Get the result (will raise exception if there was one)
+                    if not idm_flag and result != 0:
+                        print(f"Failed to download {name_prefix} - {order}, downloader returned {result}", file=sys.stderr)
+                        has_error = True
+                    else:
+                        print(f"Successfully downloaded {name_prefix} - {order}")
                 except Exception:
                     print(traceback.format_exc())
                     print(f"Failed to download {name_prefix} - {order}", file=sys.stderr)
@@ -189,8 +193,12 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
             for future in as_completed(future_to_order):
                 order = future_to_order[future]
                 try:
-                    future.result()  # Get the result (will raise exception if there was one)
-                    print(f"Successfully downloaded {name_prefix} - {order}")
+                    result = future.result()  # Get the result (will raise exception if there was one)
+                    if not idm_flag and result != 0:
+                        print(f"Failed to download {name_prefix} - {order}, downloader returned {result}", file=sys.stderr)
+                        has_error = True
+                    else:
+                        print(f"Successfully downloaded {name_prefix} - {order}")
                 except Exception:
                     print(traceback.format_exc())
                     print(f"Failed to download {name_prefix} - {order}", file=sys.stderr)
@@ -226,14 +234,19 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
             for future in as_completed(future_to_order):
                 order = future_to_order[future]
                 try:
-                    future.result()  # Get the result (will raise exception if there was one)
-                    print(f"Successfully downloaded {name_prefix} - {order}")
+                    result = future.result()  # Get the result (will raise exception if there was one)
+                    if not idm_flag and result != 0:
+                        print(f"Failed to download {name_prefix} - {order}, downloader returned {result}", file=sys.stderr)
+                        has_error = True
+                    else:
+                        print(f"Successfully downloaded {name_prefix} - {order}")
                 except Exception:
                     print(traceback.format_exc())
                     print(f"Failed to download {name_prefix} - {order}", file=sys.stderr)
                     has_error = True
 
-    return has_error
+    if has_error:
+        raise Exception("Failed to download some video segments.")
 
 
 def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments):
@@ -255,7 +268,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
     # First video concatenation command using CUDA acceleration
     video_concatenating_command = (
-        f"{FFMPEG_PATH} -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
+        f"{FFMPEG_PATH} -f concat -safe 0 "
         f"-i '{CACHE_FOLDER}/concat.txt' "
         f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
         f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
