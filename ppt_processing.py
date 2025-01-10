@@ -3,9 +3,12 @@ import time
 import subprocess
 import re
 import option
+import sys
+
+WINDOWS = sys.platform == 'win32'
 
 
-def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ppt_raw_data, name_prefix: str = ""):
+def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ARIA2C_PATH, ppt_raw_data, name_prefix: str = ""):
     print(f"Downloading {name_prefix}")
 
     if version == 1:
@@ -43,10 +46,13 @@ def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ppt_r
                 f.write(f"{slide['cover']}\n out={DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg\n")
                 images.append(f"{DOWNLOAD_FOLDER}/{name_prefix}/{slide['index']}.jpg")
 
-    ppt_download_command = (f".\\aria2c -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c "
+    ppt_download_command = (f"{ARIA2C_PATH} -i {CACHE_FOLDER}/ppt_download.txt -x 16 -s 16 -c "
                             f"-l aria2c_ppt.log --log-level warn")
 
-    subprocess.run(['powershell', '-Command', ppt_download_command], text=True)
+    if WINDOWS:
+        subprocess.run(['powershell', '-Command', ppt_download_command], text=True)
+    else:
+        subprocess.run(ppt_download_command, shell=True)
 
     from PIL import Image
 

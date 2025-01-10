@@ -5,15 +5,23 @@ import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil
+
+FFMPEG_PATH = "ffmpeg" if shutil.which("ffmpeg") else os.path.join(os.getcwd(), "ffmpeg")
+ARIA2C_PATH = "aria2c" if shutil.which("aria2c") else os.path.join(os.getcwd(), "aria2c")
+WINDOWS = sys.platform == 'win32'
 
 
 def download_segment(CACHE_FOLDER, url: str, order: int, name_prefix: str = ""):
     print(f"Downloading {name_prefix} - {order}")
 
-    video_download_command = (f".\\aria2c -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
+    video_download_command = (f"{ARIA2C_PATH} -o '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
                               f" -x 16 -s 16 '{url}' -c -l aria2c_video.log --log-level warn")
 
-    result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
+    if WINDOWS:
+        result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
+    else:
+        result = subprocess.run(video_download_command, shell=True)
 
     return result
 
@@ -91,14 +99,14 @@ def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_pre
     save_dir = os.path.dirname(output_path)
     save_name = os.path.basename(output_path)
 
-    if 'mp3' in url:
+    if 'mp3' in url or not WINDOWS:
         if idm_flag:
             video_download_command = (
                 f"idman /n /d \"{url}\" /p \"$(pwd)\" /f '{CACHE_FOLDER}/{name_prefix}-{order}.mp4'"
             )
         else:
             video_download_command = (
-                f".\\ffmpeg -i '{url}' -c:v copy -c:a copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
+                f"{FFMPEG_PATH} -i '{url}' -c:v copy -c:a copy -n '{CACHE_FOLDER}/{name_prefix}-{order}.mp4' "
                 f"-hide_banner -loglevel error -stats"
             )
 
@@ -109,7 +117,10 @@ def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_pre
             f"--check-segments-count false --download-retry-count 15 --thread-count 64"
         )
 
-    result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
+    if WINDOWS:
+        result = subprocess.run(['powershell', '-Command', video_download_command], text=True)
+    else:
+        result = subprocess.run(video_download_command, shell=True)
 
     return result
 
@@ -244,7 +255,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
     # First video concatenation command using CUDA acceleration
     video_concatenating_command = (
-        f"ffmpeg -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
+        f"{FFMPEG_PATH} -f concat -safe 0 -hwaccel cuda -hwaccel_output_format cuda "
         f"-i '{CACHE_FOLDER}/concat.txt' "
         f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
         f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
@@ -253,7 +264,10 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
     )
 
     # Run the first command
-    result = subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
+    if WINDOWS:
+        result = subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
+    else:
+        result = subprocess.run(video_concatenating_command, shell=True)
 
     # If the first command fails, try the fallback
     if result.returncode != 0:
@@ -261,7 +275,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
         # Fallback video concatenation command using cuvid acceleration
         video_concatenating_command_fallback = (
-            f"ffmpeg -f concat -safe 0 "
+            f"{FFMPEG_PATH} -f concat -safe 0 "
             f"-i '{CACHE_FOLDER}/concat.txt' "
             f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16 "
             f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
@@ -270,7 +284,10 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
         )
 
         # Run the fallback command
-        fallback_result = subprocess.run(['powershell', '-Command', video_concatenating_command_fallback], text=True)
+        if WINDOWS:
+            fallback_result = subprocess.run(['powershell', '-Command', video_concatenating_command_fallback], text=True)
+        else:
+            fallback_result = subprocess.run(video_concatenating_command_fallback, shell=True)
 
         # Check if the fallback also fails
         if fallback_result.returncode != 0:

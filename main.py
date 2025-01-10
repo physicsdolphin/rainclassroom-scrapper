@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import os
+import subprocess
 import sys
 import argparse
 import time
 import re
 import traceback
 import option
+import shutil
 
 if sys.platform == 'win32':
     os.system('chcp 65001')
@@ -17,28 +19,25 @@ parser.add_argument("-h", "--help", action="store_true", help="Show this help me
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
 parser.add_argument("-y", "--ykt-host", help="RainClassroom Host", required=False, default="pro.yuketang.cn")
 parser.add_argument("-i", "--idm", action="store_true", help="Use IDMan.exe")
-parser.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe")
-parser.add_argument("-a", "--all", action="store_true", help="All in")
-parser.add_argument("-na", "--no-all", action="store_true", help="No All in")
-parser.add_argument("--video", action="store_true", help="Download Video")
-parser.add_argument("--ppt", action="store_true", help="Download PPT")
-parser.add_argument("--ppt-to-pdf", action="store_true", help="Convert PPT to PDF", default=True)
-parser.add_argument("--ppt-problem-answer", action="store_true", help="Store PPT Problem Answer", default=True)
+parser.add_argument("-ni", "--no-idm", action="store_true", help="Don't use IDMan.exe, implied when the system is not Windows")
+parser.add_argument("-a", "--all", action="store_true", help="Download all content without asking")
+parser.add_argument("-na", "--no-all", action="store_true", help="Ask before downloading each course")
+parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Download Video")
+parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
+parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
+parser.add_argument("-npa", "--no-ppt-answer", action="store_true", help="Don't Store PPT Problem Answer")
 parser.add_argument("--course-name-filter", action="store", help="Filter Course Name", default=None)
 parser.add_argument("--lesson-name-filter", action="store", help="Filter Lesson Name", default=None)
 
-# Check for no arguments and display help if none are given
-if len(sys.argv) == 1:
-    parser.print_help()
-    print('\nYOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
-    print('YOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
-    print('YOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
-    sys.exit()
-
 args = parser.parse_args()
 
+args.__setattr__('video', not args.no_video)
+args.__setattr__('ppt', not args.no_ppt)
+args.__setattr__('ppt_to_pdf', not args.no_convert_ppt_to_pdf)
+args.__setattr__('ppt_problem_answer', not args.no_ppt_answer)
+
 # Check if no arguments are provided or only --help is provided
-if args.help or len(vars(args)) == 0:
+if args.help or len(sys.argv) == 1:
     print("""RainClassroom Video Downloader
 
 requirements:
@@ -52,7 +51,81 @@ requirements:
     - ffmpeg with nvenc support (Concatenate video segments and convert to HEVC)
 """)
     print(parser.format_help())
+
+    if sys.platform == 'win32':
+        print('\nYOU SHALL RUN THIS EXECUTABLE FROM POWERSHELL WITH ARGUMENT!!')
+        os.system('pause')
+
     exit()
+
+# Check for dependencies
+try:
+    import requests
+except ImportError:
+    print("requests is not installed. Please install it using 'pip install requests'", file=sys.stderr)
+    exit(1)
+
+if args.session_cookie is None:
+    try:
+        import websocket
+    except ImportError:
+        print("websocket-client is not installed. Please install it using 'pip install websocket-client'", file=sys.stderr)
+        exit(1)
+
+    try:
+        import qrcode
+    except ImportError:
+        print("qrcode is not installed. Please install it using 'pip install qrcode'", file=sys.stderr)
+        exit(1)
+
+if args.ppt_to_pdf or args.ppt_problem_answer:
+    try:
+        import PIL
+    except ImportError:
+        print("PIL is not installed. Please install it using 'pip install pillow'", file=sys.stderr)
+        exit(1)
+
+if args.all and args.no_all:
+    print("'-a' and '-na' cannot be used together")
+if args.idm and args.no_idm:
+    print("'-idm' and '-no_idm' cannot be used together")
+
+if args.all:
+    allin_flag = 1
+elif args.no_all:
+    allin_flag = 0
+else:
+    allin_flag = option.ask_for_allin()
+
+if sys.platform != 'win32':
+    print("Inferring --no-idm flag as the system is not Windows")
+    args.no_idm = True
+
+if args.idm:
+    idm_flag = 1
+elif args.no_idm:
+    idm_flag = 0
+else:
+    idm_flag = option.ask_for_idm()
+
+if idm_flag and shutil.which('IDMan.exe') is None:
+    print("IDMan.exe is not found. Please install IDM and add it to PATH, or specify '--no-idm' flag", file=sys.stderr)
+    exit(1)
+
+if idm_flag and sys.platform != 'win32':
+    print("WARNING: Are you sure that you want to use IDM on a non-Windows system?", file=sys.stderr)
+
+args.__setattr__("aria2c_path", "aria2c")
+if shutil.which("aria2c") is None and os.path.exists("aria2c.exe"):
+    args.__setattr__("aria2c_path", os.path.join(os.getcwd(), "aria2c"))
+    print(f"aria2c is not found in PATH, using local binary at {args.aria2c_path}")
+
+if not idm_flag:
+    if shutil.which(args.aria2c_path) is None:
+        print("aria2c is not found. Please install aria2 and add it to PATH, or use IDM instead", file=sys.stderr)
+        exit(1)
+
+    print("IDM is not enabled, aria2c will be used for downloading")
 
 import requests
 import json
@@ -597,7 +670,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             try:
                 ppt_raw_data = rainclassroom_sess.get(
                     f"https://{YKT_HOST}/v2/api/web/lessonafter/presentation/{ppt['id']}?classroom_id={lesson['classroom_id']}").json()
-                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                download_ppt(1, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
@@ -610,7 +683,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             try:
                 ppt_raw_data = rainclassroom_sess.get(
                     f"https://{YKT_HOST}/api/v3/lesson-summary/student/presentation?presentation_id={ppt['id']}&lesson_id={lesson['courseware_id']}").json()
-                download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER,
+                download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
                              ppt_raw_data, name_prefix + f"-{index}")
 
             except Exception as e:
@@ -622,36 +695,14 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
 
 # --- --- --- Section Main --- --- --- #
 
-
-import option as opt
-
 print('successfully parsed account info!')
-
-if args.all and args.no_all:
-    print("'-a' and '-na' cannot be used together")
-if args.idm and args.no_idm:
-    print("'-idm' and '-no_idm' cannot be used together")
-
-if args.all:
-    allin_flag = 1
-elif args.no_all:
-    allin_flag = 0
-else:
-    allin_flag = opt.ask_for_allin()
-
-if args.idm:
-    idm_flag = 1
-elif args.no_idm:
-    idm_flag = 0
-else:
-    idm_flag = opt.ask_for_idm()
 
 for course in courses:
     skip_flag = 0
     try:
         print(course)
         if not allin_flag:
-            skip_flag = opt.ask_for_input()
+            skip_flag = option.ask_for_input()
             if skip_flag:
                 continue
             else:
