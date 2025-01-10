@@ -12,6 +12,9 @@
             "console": "integratedTerminal",
             "args": [
                 "-ds",
+                "-nv",
+                "-cnf",
+                "清华大学",
                 "-c",
                 "${input:cookie}" // Ask for cookie here
             ]

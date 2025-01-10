@@ -28,6 +28,7 @@ parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Downlo
 parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
 parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
 parser.add_argument("-npa", "--no-ppt-answer", action="store_true", help="Don't Store PPT Problem Answer")
+parser.add_argument("-np2", "--no-ppt-type2", action="store_true", help="Don't Download Type 2 PPT (requires selenium)")
 parser.add_argument("-cnf", "--course-name-filter", action="append", help="Filter Course Name", default=None)
 parser.add_argument("-lnf", "--lesson-name-filter", action="append", help="Filter Lesson Name", default=None)
 
@@ -88,6 +89,13 @@ if args.ppt_to_pdf or args.ppt_problem_answer:
         import PIL
     except ImportError:
         print("PIL is not installed. Please install it using 'pip install pillow'", file=sys.stderr)
+        exit(1)
+
+if not args.no_ppt_type2:
+    try:
+        import selenium
+    except ImportError:
+        print("selenium is not installed. Please install it using 'pip install selenium' or use -np2", file=sys.stderr)
         exit(1)
 
 if args.download_all:
@@ -246,16 +254,16 @@ if args.download_select:
             print(f"{i + 1}. {course['course']['name']}({course['name']}) - {course['teacher']['name']}")
 
         selection = input("Select courses to download (e.g. `1, 2, 3-5, 10`): ")
-
-        indexes = []
-        for part in selection.split(","):
-            if "-" in part:
-                start, end = map(int, part.split("-"))
-                indexes.extend(range(start, end + 1))
-            else:
-                indexes.append(int(part))
         
         try:
+            indexes = []
+            for part in selection.split(","):
+                if "-" in part:
+                    start, end = map(int, part.split("-"))
+                    indexes.extend(range(start, end + 1))
+                else:
+                    indexes.append(int(part))
+
             selected_courses = [courses[i - 1] for i in indexes]
             courses = selected_courses
             download_type_flag = 1
@@ -368,11 +376,21 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
             if lesson['type'] in (15, 17):
                 print("mooc type has no ppts!")
                 continue
+
+            if lesson['type'] == 6:
+                print("Announcement has no ppt!")
+                continue
+
             lesson['classroom_id'] = course['classroom_id']
 
             # Lesson
             try:
-                download_lesson_ppt(lesson, name_prefix + str(length - index))
+                if lesson['type'] == 2:
+                    print('Script type detected!')
+                    download_lesson_ppt_type2(lesson, name_prefix + str(length - index))
+                else:
+                    print('Normal type detected!')
+                    download_lesson_ppt(lesson, name_prefix + str(length - index))
             except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
@@ -780,6 +798,68 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
         except Exception as e:
             print(traceback.format_exc())
             print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
+
+
+def download_lesson_ppt_type2(lesson: dict, name_prefix: str = ""):
+    import selenium.webdriver
+    from selenium.webdriver.chrome.options import Options
+
+    lesson_data = rainclassroom_sess.get(
+        f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
+    check_response(lesson_data)
+
+    name_prefix = option.windows_filesame_sanitizer(name_prefix)[:name_prefix.rfind('/')]
+
+    ppt_name = lesson_data['data']['Title'] + '.pdf'
+
+    if os.path.exists(os.path.join(DOWNLOAD_FOLDER, name_prefix, ppt_name)):
+        print(f"Skipping {name_prefix}/{ppt_name} - PPT already present")
+        return
+
+    ppt_data = json.dumps(lesson_data['data']).replace("\\", "\\\\").replace("`", "\\`")
+
+    # Create a Selenium WebDriver and set localstorage.rain_print of YKT_HOST to ppt_data
+    # driver = selenium.webdriver.Chrome()
+    # driver.get(f"https://{YKT_HOST}/")
+    # driver.execute_script(f"localStorage.rain_print = `{ppt_data}`")
+
+    # # Navigate to https://{YKT_HOST}/web/print and print webpage to PDF
+    # driver.get(f"https://{YKT_HOST}/web/print")
+    
+    # # Print to PDF without user's interaction
+    # driver.execute_script("window.print();")
+    
+
+    chrome_options = Options()
+    chrome_options.add_argument('--kiosk-printing')
+    # chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+    prefs = {
+        'printing.print_preview_sticky_settings.appState': json.dumps({
+            'recentDestinations': [{
+                'id': 'Save as PDF',
+                'origin': 'local',
+                'account': '',
+            }],
+            'selectedDestinationId': 'Save as PDF',
+            'version': 2
+        }),
+        'savefile.default_directory': os.path.join(os.path.abspath(DOWNLOAD_FOLDER), name_prefix)
+    }
+    chrome_options.add_experimental_option('prefs', prefs)
+
+    driver = selenium.webdriver.Chrome(options=chrome_options)
+    driver.get(f"https://{YKT_HOST}/")
+    driver.execute_script(f"localStorage.rain_print = `{ppt_data}`")
+    driver.get(f"https://{YKT_HOST}/web/print")
+    time.sleep(3)
+    driver.execute_script("window.print();")
+    time.sleep(3)
+    driver.quit()
+
 
 
 # --- --- --- Section Main --- --- --- #
