@@ -16,7 +16,7 @@ def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ARIA2
     else:
         name_prefix += "-" + ppt_raw_data['data']['presentation']['title'].rstrip()
 
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    name_prefix = option.windows_filename_sanitizer(name_prefix)
 
     # If PDF is present, skip
     if os.path.exists(f"{DOWNLOAD_FOLDER}/{name_prefix}.pdf"):

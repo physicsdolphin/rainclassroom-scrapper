@@ -249,7 +249,7 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
         raise Exception("Failed to download some video segments.")
 
 
-def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments):
+def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segments, hw_decoding_flag):
     # Create the concat file with segment paths
     with open(f"{CACHE_FOLDER}/concat.txt", "w", encoding='utf-8') as f:
         for i in range(num_segments):
@@ -267,14 +267,24 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
         return target_file
 
     # First video concatenation command using CUDA acceleration
-    video_concatenating_command = (
-        f"{FFMPEG_PATH} -f concat -safe 0 "
-        f"-i '{CACHE_FOLDER}/concat.txt' "
-        f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
-        f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
-        f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
-        f"-hide_banner -loglevel error -stats"
-    )
+    if hw_decoding_flag:
+        video_concatenating_command = (
+            f"{FFMPEG_PATH} -hwaccel cuda -f concat -safe 0 "
+            f"-i '{CACHE_FOLDER}/concat.txt' "
+            f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
+            f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
+            f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
+            f"-hide_banner -loglevel error -stats"
+        )
+    else:
+        video_concatenating_command = (
+            f"{FFMPEG_PATH} -f concat -safe 0 "
+            f"-i '{CACHE_FOLDER}/concat.txt' "
+            f"-c:v av1_nvenc -cq 36 -g 200 -bf 7 -b_strategy 1 -sc_threshold 80 -me_range 16  "
+            f"-surfaces 64 -bufsize 12800k -refs 16 -r 7.5 -temporal-aq 1 -rc-lookahead 127 "
+            f"-c:a aac -ac 1 -rematrix_maxval 1.0 -b:a 64k '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' -n "
+            f"-hide_banner -loglevel error -stats"
+        )
 
     # Run the first command
     if WINDOWS:

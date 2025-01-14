@@ -25,6 +25,7 @@ content_sel_group.add_argument("-da", "--download-all", action="store_true", hel
 content_sel_group.add_argument("-dq", "--download-ask", action="store_true", help="Ask before downloading each course")
 content_sel_group.add_argument("-ds", "--download-select", action="store_true", help="Select courses to download "
                                                                                      "before downloading")
+parser.add_argument("-nh", "--no-hw-decoding", action="store_true", help="Don't use hardware encoding")
 parser.add_argument("-nv", "--no-video", action="store_true", help="Don't Download Video")
 parser.add_argument("-np", "--no-ppt", action="store_true", help="Don't Download PPT")
 parser.add_argument("-npc", "--no-convert-ppt-to-pdf", action="store_true", help="Don't Convert PPT to PDF")
@@ -130,6 +131,11 @@ if idm_flag and shutil.which('IDMan.exe') is None:
 
 if idm_flag and sys.platform != 'win32':
     print("WARNING: Are you sure that you want to use IDM on a non-Windows system?", file=sys.stderr)
+
+if args.no_hw_decoding:
+    hw_decoding_flag = 0
+else:
+    hw_decoding_flag = 1
 
 args.__setattr__("aria2c_path", "aria2c")
 if shutil.which("aria2c") is None and os.path.exists("aria2c.exe"):
@@ -296,7 +302,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     check_response(lesson_data)
 
     folder_name = f"{course['name']}-{course['teacher']['name']}"
-    folder_name = option.windows_filesame_sanitizer(folder_name)
+    folder_name = option.windows_filename_sanitizer(folder_name)
 
     if idm_flag:
         folder_name = folder_name.replace('/', '\\')
@@ -315,7 +321,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
     os.makedirs(f"{CACHE_FOLDER}/{folder_name}", exist_ok=True)
 
     name_prefix += folder_name.rstrip() + "/"
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    name_prefix = option.windows_filename_sanitizer(name_prefix)
 
     if args.lesson_name_filter is not None:
         lesson_data['data']['activities'] = [l for l in lesson_data['data']['activities'] if
@@ -353,33 +359,48 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 print(traceback.format_exc())
                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
                 failed_lessons.append((index, lesson))
+        # TODO: FIX FAILURE BEHAVIOR
+        print('sbykt may not prepare all cold data at once, rescanning for missing ones')
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            if not lesson['type'] in [2, 3, 14, 15, 17]:
+                continue
 
-        if len(failed_lessons) > 0:
-            print('Retrying failed lessons')
+            lesson['classroom_id'] = course['classroom_id']
 
-            for retry_count in range(3):
-                if len(failed_lessons) == 0:
-                    break
+            # Lesson
+            try:
+                parse_single_lesson(index, lesson)
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
+                failed_lessons.append((index, lesson))
 
-                print(f"Retry #{retry_count + 1}")
-                still_failed_lessons = []
-                for index, lesson in failed_lessons:
-                    try:
-                        parse_single_lesson(index, lesson)
-                    except Exception:
-                        print(traceback.format_exc())
-                        print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
-                        still_failed_lessons.append((index, lesson))
-
-                failed_lessons = still_failed_lessons
-
-            if len(failed_lessons) > 0:
-                with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
-                    for index, lesson in failed_lessons:
-                        f.write(f"Video for {name_prefix} - {lesson['title']}\n")
-                        f.write(json.dumps(lesson) + "\n\n\n")
-
-                        print(f"Video for {name_prefix} - {lesson['title']} failed to download", file=sys.stderr)
+        # if len(failed_lessons) > 0:
+        #     print('Retrying failed lessons')
+        #
+        #     for retry_count in range(3):
+        #         if len(failed_lessons) == 0:
+        #             break
+        #
+        #         print(f"Retry #{retry_count + 1}")
+        #         still_failed_lessons = []
+        #         for index, lesson in failed_lessons:
+        #             try:
+        #                 parse_single_lesson(index, lesson)
+        #             except Exception:
+        #                 print(traceback.format_exc())
+        #                 print(f"Failed to download video for {name_prefix} - {lesson['title']}", file=sys.stderr)
+        #                 still_failed_lessons.append((index, lesson))
+        #
+        #         failed_lessons = still_failed_lessons
+        #
+        #     if len(failed_lessons) > 0:
+        #         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+        #             for index, lesson in failed_lessons:
+        #                 f.write(f"Video for {name_prefix} - {lesson['title']}\n")
+        #                 f.write(json.dumps(lesson) + "\n\n\n")
+        #
+        #                 print(f"Video for {name_prefix} - {lesson['title']} failed to download", file=sys.stderr)
 
     if args.ppt:
         failed_lessons = []
@@ -404,32 +425,55 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
                 failed_lessons.append((index, lesson))
 
-        if len(failed_lessons) > 0:
-            print('Retrying failed lessons')
+        # TODO: FIX FAILURE BEHAVIOR
+        print('sbykt may not prepare all cold data at once, rescanning for missing ones')
+        for index, lesson in enumerate(lesson_data['data']['activities']):
+            lesson['classroom_id'] = course['classroom_id']
 
-            for retry_count in range(3):
-                if len(failed_lessons) == 0:
-                    break
+            # Lesson
+            try:
+                if lesson['type'] == 2:
+                    print('Script type detected!')
+                    download_lesson_ppt_type2(lesson, name_prefix + str(length - index))
+                elif lesson['type'] in [14, 3]:
+                    print('Normal type detected!')
+                    download_lesson_ppt(lesson, name_prefix + str(length - index))
+                elif lesson['type'] in [15, 17]:
+                    print('MOOC type has no PPT')
+                elif lesson['type'] in [6, 9]:
+                    print('Announcement type has no PPT')
 
-                print(f"Retry #{retry_count + 1}")
-                still_failed_lessons = []
-                for index, lesson in failed_lessons:
-                    try:
-                        download_lesson_ppt(lesson, name_prefix + str(length - index))
-                    except Exception:
-                        print(traceback.format_exc())
-                        print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
-                        still_failed_lessons.append((index, lesson))
+            except Exception:
+                print(traceback.format_exc())
+                print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
+                failed_lessons.append((index, lesson))
 
-                failed_lessons = still_failed_lessons
-
-            if len(failed_lessons) > 0:
-                with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
-                    for index, lesson in failed_lessons:
-                        f.write(f"PPT for {name_prefix} - {lesson['title']}\n")
-                        f.write(json.dumps(lesson) + "\n\n\n")
-
-                        print(f"PPT for {name_prefix} - {lesson['title']} failed to download", file=sys.stderr)
+        # if len(failed_lessons) > 0:
+        #     print('Retrying failed lessons')
+        #
+        #     for retry_count in range(3):
+        #         if len(failed_lessons) == 0:
+        #             break
+        #
+        #         print(f"Retry #{retry_count + 1}")
+        #         still_failed_lessons = []
+        #         for index, lesson in failed_lessons:
+        #             try:
+        #                 download_lesson_ppt(lesson, name_prefix + str(length - index))
+        #             except Exception:
+        #                 print(traceback.format_exc())
+        #                 print(f"Failed to download PPT for {name_prefix} - {lesson['title']}", file=sys.stderr)
+        #                 still_failed_lessons.append((index, lesson))
+        #
+        #         failed_lessons = still_failed_lessons
+        #
+        #     if len(failed_lessons) > 0:
+        #         with open(f"{DOWNLOAD_FOLDER}/error.log", "a") as f:
+        #             for index, lesson in failed_lessons:
+        #                 f.write(f"PPT for {name_prefix} - {lesson['title']}\n")
+        #                 f.write(json.dumps(lesson) + "\n\n\n")
+        #
+        #                 print(f"PPT for {name_prefix} - {lesson['title']} failed to download", file=sys.stderr)
 
 
 # --- --- --- Section Download Lesson Video --- --- --- #
@@ -460,7 +504,7 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
             print(f"Skipping {name_prefix} - No Video", file=sys.stderr)
 
     name_prefix += "-" + lesson['title'].rstrip()
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    name_prefix = option.windows_filename_sanitizer(name_prefix)
 
     if idm_flag:
         name_prefix = re.sub(r'[“”]', '_', name_prefix)
@@ -485,11 +529,12 @@ def download_lesson_video(lesson: dict, name_prefix: str = ""):
         time.sleep(1)
         if 'live' in lesson_video_data['data'] and len(lesson_video_data['data']['live']) > 0:
             print(f"Concatenating {name_prefix}")
-            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, len(lesson_video_data['data']['live']))
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix,
+                                 len(lesson_video_data['data']['live']), hw_decoding_flag)
         elif 'live_timeline' in lesson_video_data['data'] and len(lesson_video_data['data']['live_timeline']) > 0:
             print(f"Concatenating {name_prefix}")
             concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix,
-                                 len(lesson_video_data['data']['live_timeline']))
+                                 len(lesson_video_data['data']['live_timeline']), hw_decoding_flag)
         else:
             print('concatenate cannot start due to previous failure')
     else:
@@ -519,7 +564,7 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
             has_error = False
 
             name_prefix_orphan = name_prefix + chapter_name + " - " + orphan_title
-            name_prefix_orphan = option.windows_filesame_sanitizer(name_prefix_orphan)
+            name_prefix_orphan = option.windows_filename_sanitizer(name_prefix_orphan)
 
             if idm_flag:
                 name_prefix_orphan = re.sub(r'[“”]', '_', name_prefix_orphan)
@@ -563,7 +608,8 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                 time.sleep(0.25)
                 if 'playurl' in mooc_orphan_media_data['data'] and len(download_url_list) > 0:
                     print(f"Concatenating {name_prefix}")
-                    concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_orphan, len(download_url_list))
+                    concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_orphan,
+                                         len(download_url_list), hw_decoding_flag)
                 else:
                     print('concatenate cannot start due to previous failure')
             else:
@@ -582,7 +628,7 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                 has_error = False
 
                 name_prefix_lesson = name_prefix + chapter_name + " - " + section_name + " - " + lesson_name
-                name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+                name_prefix_lesson = option.windows_filename_sanitizer(name_prefix_lesson)
 
                 if idm_flag:
                     name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
@@ -627,7 +673,8 @@ def download_lesson_video_type15(lesson: dict, name_prefix: str = ""):
                     time.sleep(1)
                     if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
                         print(f"Concatenating {name_prefix}")
-                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson,
+                                             len(download_url_list), hw_decoding_flag)
                     else:
                         print('concatenate cannot start due to previous failure')
                 else:
@@ -658,7 +705,7 @@ def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
     has_error = False
 
     name_prefix_lesson = name_prefix + only_lesson_name
-    name_prefix_lesson = option.windows_filesame_sanitizer(name_prefix_lesson)
+    name_prefix_lesson = option.windows_filename_sanitizer(name_prefix_lesson)
 
     if idm_flag:
         name_prefix_lesson = re.sub(r'[“”]', '_', name_prefix_lesson)
@@ -701,7 +748,8 @@ def download_lesson_video_type17(lesson: dict, name_prefix: str = ""):
         time.sleep(1)
         if 'playurl' in mooc_media_data['data'] and len(download_url_list) > 0:
             print(f"Concatenating {name_prefix}")
-            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson, len(download_url_list))
+            concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_lesson,
+                                 len(download_url_list), hw_decoding_flag)
         else:
             print('concatenate cannot start due to previous failure')
     else:
@@ -721,7 +769,7 @@ def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
     check_response(lesson_data)
     name_prefix += "-" + lesson_data['data']['Title'].strip()
 
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    name_prefix = option.windows_filename_sanitizer(name_prefix)
 
     for slide in lesson_data['data']['Slides']:
         slide_id = slide['PageIndex']
@@ -733,7 +781,7 @@ def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
                 download_url_list = shape['playurls'][quality_keys[0][1]]
 
                 name_prefix_shape = name_prefix + f" - {slide_id} - {file_title}"
-                name_prefix_shape = option.windows_filesame_sanitizer(name_prefix_shape)
+                name_prefix_shape = option.windows_filename_sanitizer(name_prefix_shape)
 
                 if idm_flag:
                     name_prefix_shape = re.sub(r'[“”]', '_', name_prefix_shape)
@@ -752,7 +800,8 @@ def download_lesson_video_type2(lesson: dict, name_prefix: str = ""):
                     time.sleep(1)
                     if 'playurl' in shape and len(download_url_list) > 0:
                         print(f"Concatenating {name_prefix}")
-                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_shape, len(download_url_list))
+                        concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix_shape,
+                                             len(download_url_list), hw_decoding_flag)
                     else:
                         print('concatenate cannot start due to previous failure')
                 else:
@@ -768,7 +817,7 @@ from ppt_processing import download_ppt
 
 def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
     name_prefix += "-" + lesson['title'].rstrip()
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)
+    name_prefix = option.windows_filename_sanitizer(name_prefix)
 
     lesson_data = rainclassroom_sess.get(
         f"https://{YKT_HOST}/api/v3/lesson-summary/student?lesson_id={lesson['courseware_id']}").json()
@@ -797,7 +846,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
                              args.aria2c_path,
                              ppt_raw_data, name_prefix + f"-{index}")
 
-            except Exception as e:
+            except Exception:
                 print(traceback.format_exc())
                 print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
@@ -810,7 +859,7 @@ def download_lesson_ppt(lesson: dict, name_prefix: str = ""):
             download_ppt(3, args.ppt_problem_answer, args.ppt_to_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, args.aria2c_path,
                          ppt_raw_data, name_prefix + f"-{index}")
 
-        except Exception as e:
+        except Exception:
             print(traceback.format_exc())
             print(f"Failed to download PPT {name_prefix} - {ppt['title']}", file=sys.stderr)
 
@@ -823,7 +872,7 @@ def download_lesson_ppt_type2(lesson: dict, name_prefix: str = ""):
         f"https://{YKT_HOST}/v2/api/web/cards/detlist/{lesson['courseware_id']}?classroom_id={lesson['classroom_id']}").json()
     check_response(lesson_data)
 
-    name_prefix = option.windows_filesame_sanitizer(name_prefix)[:name_prefix.rfind('/')]
+    name_prefix = option.windows_filename_sanitizer(name_prefix)[:name_prefix.rfind('/')]
 
     ppt_name = lesson_data['data']['Title'] + '.pdf'
 
@@ -891,6 +940,6 @@ for course in courses:
                 get_lesson_list(course)
         else:
             get_lesson_list(course)
-    except Exception as e:
+    except Exception:
         print(traceback.format_exc())
         print(f"Failed to parse {course['name']}", file=sys.stderr)

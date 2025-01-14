@@ -54,7 +54,8 @@ def ask_for_idm():
         else:
             print("Invalid input, please enter 'y' or 'n'.")
 
-def windows_filesame_sanitizer(input_str):
+
+def windows_filename_sanitizer(input_str):
     # Remove illegal characters for Windows filenames
     input_str = re.sub(r'[<>:"\\|?*\x00-\x1F]', '_', input_str)
     input_str = re.sub(r'[\x80-\xFF]', '', input_str)
