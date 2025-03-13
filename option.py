@@ -65,4 +65,4 @@ def windows_filename_sanitizer(input_str):
         input_str = parts[0] + "/" + parts[1].replace("/", "_")  # Preserve first slash, replace others
     else:
         input_str = parts[0]  # No slashes found
-    return input_str
+    return input_str[:180]

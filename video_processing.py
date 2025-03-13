@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 import sys
 import time
@@ -144,8 +143,8 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
                 # Store the future and order for tracking
                 future_to_order[future] = order
 
-                # Add a 1-second interval between submissions
-                time.sleep(1)
+                # Add a 3-second interval between submissions
+                time.sleep(3)
 
             # Iterate over the completed futures
             for future in as_completed(future_to_order):
@@ -186,8 +185,8 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
                 # Store the future and order for tracking
                 future_to_order[future] = order
 
-                # Add a 1-second interval between submissions
-                time.sleep(1)
+                # Add a 3-second interval between submissions
+                time.sleep(3)
 
             # Iterate over the completed futures
             for future in as_completed(future_to_order):
@@ -227,8 +226,8 @@ def download_segments_in_parallel(idm_flag, fallback_flag, CACHE_FOLDER, lesson_
                 # Store the future and order for tracking
                 future_to_order[future] = order
 
-                # Add a 1-second interval between submissions
-                time.sleep(1)
+                # Add a 3-second interval between submissions
+                time.sleep(3)
 
             # Iterate over the completed futures
             for future in as_completed(future_to_order):
@@ -263,7 +262,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
     target_file = os.path.join(DOWNLOAD_FOLDER, f"{name_prefix}.mp4")
     if os.path.exists(target_file):
         print(f"Skipping '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' - Video already present")
-        time.sleep(0.25)
+        time.sleep(1)
         return target_file
 
     # First video concatenation command using CUDA acceleration
@@ -288,7 +287,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
     # Run the first command
     if WINDOWS:
-        result = subprocess.run(['powershell', '-Command', video_concatenating_command], text=True)
+        result = subprocess.run(['powershell', '-Command', video_concatenating_command], text=True, creationflags=subprocess.ABOVE_NORMAL_PRIORITY_CLASS)
     else:
         result = subprocess.run(video_concatenating_command, shell=True)
 
@@ -308,7 +307,7 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
 
         # Run the fallback command
         if WINDOWS:
-            fallback_result = subprocess.run(['powershell', '-Command', video_concatenating_command_fallback], text=True)
+            fallback_result = subprocess.run(['powershell', '-Command', video_concatenating_command_fallback], text=True, creationflags=subprocess.ABOVE_NORMAL_PRIORITY_CLASS)
         else:
             fallback_result = subprocess.run(video_concatenating_command_fallback, shell=True)
 

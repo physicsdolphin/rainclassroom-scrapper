@@ -1,12 +1,15 @@
 import os
-import time
+import shutil
 import subprocess
-import re
-import option
 import sys
+import time
+
+import option
 
 WINDOWS = sys.platform == 'win32'
 
+FFMPEG_PATH = "ffmpeg" if shutil.which("ffmpeg") else os.path.join(os.getcwd(), "ffmpeg")
+ARIA2C_PATH = "aria2c" if shutil.which("aria2c") else os.path.join(os.getcwd(), "aria2c")
 
 def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ARIA2C_PATH, ppt_raw_data, name_prefix: str = ""):
     print(f"Downloading {name_prefix}")

@@ -1,11 +1,15 @@
 .idea/
 /data/
 /cache/
+/build/
+/dist/
+/Logs/
 .vscode/
 *.log
 __pycache__
 ffmpeg.exe
 *.bat
+*.spec
 HLSDownloader.exe
 m3u8dl-windows-amd64.exe
 manual command.txt

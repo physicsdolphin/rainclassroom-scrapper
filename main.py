@@ -361,6 +361,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
                 failed_lessons.append((index, lesson))
         # TODO: FIX FAILURE BEHAVIOR
         print('sbykt may not prepare all cold data at once, rescanning for missing ones')
+        time.sleep(2)
         for index, lesson in enumerate(lesson_data['data']['activities']):
             if not lesson['type'] in [2, 3, 14, 15, 17]:
                 continue
@@ -427,6 +428,7 @@ def get_lesson_list(course: dict, name_prefix: str = ""):
 
         # TODO: FIX FAILURE BEHAVIOR
         print('sbykt may not prepare all cold data at once, rescanning for missing ones')
+        time.sleep(2)
         for index, lesson in enumerate(lesson_data['data']['activities']):
             lesson['classroom_id'] = course['classroom_id']
 
