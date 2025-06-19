@@ -8,11 +8,18 @@ import option
 
 WINDOWS = sys.platform == 'win32'
 
-FFMPEG_PATH = "ffmpeg" if shutil.which("ffmpeg") else os.path.join(os.getcwd(), "ffmpeg")
-ARIA2C_PATH = "aria2c" if shutil.which("aria2c") else os.path.join(os.getcwd(), "aria2c")
+from option import get_executable_path
 
 def download_ppt(version, arg_ans, arg_pdf, CACHE_FOLDER, DOWNLOAD_FOLDER, ARIA2C_PATH, ppt_raw_data, name_prefix: str = ""):
     print(f"Downloading {name_prefix}")
+
+    FFMPEG_PATH = get_executable_path("ffmpeg")
+    ARIA2C_PATH = get_executable_path("aria2c")
+    M3U8DL_PATH = get_executable_path("N_m3u8DL-RE")
+
+    print(f"\nFinal FFMPEG Path: {FFMPEG_PATH}")
+    print(f"Final ARIA2C Path: {ARIA2C_PATH}")
+    print(f"Final M3U8DL Path: {M3U8DL_PATH}")
 
     if version == 1:
         name_prefix += "-" + ppt_raw_data['data']['title'].rstrip()

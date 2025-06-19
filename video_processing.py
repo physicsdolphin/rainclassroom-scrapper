@@ -6,8 +6,16 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
 
-FFMPEG_PATH = "ffmpeg" if shutil.which("ffmpeg") else os.path.join(os.getcwd(), "ffmpeg")
-ARIA2C_PATH = "aria2c" if shutil.which("aria2c") else os.path.join(os.getcwd(), "aria2c")
+from option import get_executable_path
+
+FFMPEG_PATH = get_executable_path("ffmpeg")
+ARIA2C_PATH = get_executable_path("aria2c")
+M3U8DL_PATH = get_executable_path("N_m3u8DL-RE")
+
+print(f"\nFinal FFMPEG Path: {FFMPEG_PATH}")
+print(f"Final ARIA2C Path: {ARIA2C_PATH}")
+print(f"Final M3U8DL Path: {M3U8DL_PATH}")
+
 WINDOWS = sys.platform == 'win32'
 
 
@@ -111,7 +119,7 @@ def download_segment_m3u8(idm_flag, CACHE_FOLDER, url: str, order: int, name_pre
 
     else:
         video_download_command = (
-            f".\\N_m3u8DL-RE.exe '{url}' --tmp-dir './{CACHE_FOLDER}' "
+            f"{M3U8DL_PATH} '{url}' --tmp-dir './{CACHE_FOLDER}' "
             f"--save-dir '{save_dir}' --save-name '{save_name}' -M format=mp4 "
             f"--check-segments-count false --download-retry-count 15 --thread-count 64"
         )
@@ -264,7 +272,6 @@ def concatenate_segments(CACHE_FOLDER, DOWNLOAD_FOLDER, name_prefix, num_segment
         print(f"Skipping '{DOWNLOAD_FOLDER}/{name_prefix}.mp4' - Video already present")
         time.sleep(1)
         return target_file
-
     # First video concatenation command using CUDA acceleration
     if hw_decoding_flag:
         video_concatenating_command = (

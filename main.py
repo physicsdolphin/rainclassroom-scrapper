@@ -12,6 +12,7 @@ import shutil
 if sys.platform == 'win32':
     os.system('chcp 65001')
 
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument("-c", "--session-cookie", help="Session Cookie", required=False)
